@@ -5,24 +5,26 @@ import PackageDescription
 
 let package = Package(
     name: "DLAB",
+    platforms: [.macOS(.v10_14)],
     products: [
-        // Products define the executables and libraries a package produces, and make them visible to other packages.
-        .library(
-            name: "DLAB",
-            targets: ["DLAB"]),
+        .library(name: "DLABCapture", targets: ["DLABCapture"]),
+        .library(name: "DLABCore", targets: ["DLABCore"]),
     ],
     dependencies: [
         // Dependencies declare other packages that this package depends on.
         // .package(url: /* package url */, from: "1.0.0"),
     ],
     targets: [
-        // Targets are the basic building blocks of a package. A target can define a module or a test suite.
-        // Targets can depend on other targets in this package, and on products in packages this package depends on.
-        .target(
-            name: "DLAB",
-            dependencies: []),
-        .testTarget(
-            name: "DLABTests",
-            dependencies: ["DLAB"]),
+        .target(name: "DLABCapture", dependencies: ["DLABCore"]),
+        .testTarget(name: "DLABCaptureTests", dependencies: ["DLABCapture"]),
+        .target(name: "DLABCore", dependencies: ["DLABridging"]),
+        .target(name: "DLABridging", dependencies: ["DLABridgingCpp"]),
+        .target(name: "DLABridgingCpp", dependencies: ["DeckLinkAPI"]),
+        .target(name: "DeckLinkAPI"),
+        .testTarget(name: "DLABCoreTests", dependencies: ["DLABCore"]),
     ]
+    
+    , swiftLanguageVersions: [.v5]
+    , cLanguageStandard: .c18
+    , cxxLanguageStandard: .cxx17
 )
