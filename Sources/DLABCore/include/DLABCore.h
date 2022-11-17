@@ -15,6 +15,7 @@
 @import CoreMedia;
 @import CoreVideo;
 @import Accelerate;
+@import AudioToolbox;
 
 #import "DLABConstants.h"
 #import "DLABBrowser.h"
