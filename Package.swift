@@ -3,6 +3,8 @@
 
 import PackageDescription
 
+let headerPath: [CXXSetting] = [.headerSearchPath("include"), .headerSearchPath("src")]
+
 let package = Package(
     name: "DLAB",
     platforms: [.macOS(.v10_14)],
@@ -18,7 +20,7 @@ let package = Package(
         .target(name: "DLABCapture", dependencies: ["DLABCore"]),
         .testTarget(name: "DLABCaptureTests", dependencies: ["DLABCapture"]),
         .target(name: "DLABCore", dependencies: ["DLABridging"]),
-        .target(name: "DLABridging", dependencies: ["DLABridgingCpp"]),
+        .target(name: "DLABridging", dependencies: ["DLABridgingCpp"], cxxSettings: headerPath),
         .target(name: "DLABridgingCpp", dependencies: ["DeckLinkAPI"]),
         .target(name: "DeckLinkAPI"),
         .testTarget(name: "DLABCoreTests", dependencies: ["DLABCore"]),
