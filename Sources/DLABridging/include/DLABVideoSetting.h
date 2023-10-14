@@ -10,7 +10,7 @@
 
 #import <Foundation/Foundation.h>
 #import <CoreMedia/CoreMedia.h>
-#import "DLABConstants.h"
+#import <DLABConstants.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
