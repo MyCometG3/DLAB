@@ -27,6 +27,6 @@ let package = Package(
     ]
     
     , swiftLanguageVersions: [.v5]
-    , cLanguageStandard: .c18
-    , cxxLanguageStandard: .cxx17
+    , cLanguageStandard: .gnu17
+    , cxxLanguageStandard: .gnucxx20
 )
