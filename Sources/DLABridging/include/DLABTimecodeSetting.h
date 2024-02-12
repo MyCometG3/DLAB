@@ -3,7 +3,7 @@
 //  DLABCore
 //
 //  Created by Takashi Mochizuki on 2017/08/26.
-//  Copyright © 2017-2023 MyCometG3. All rights reserved.
+//  Copyright © 2017-2024 MyCometG3. All rights reserved.
 //
 
 /* This software is released under the MIT License, see LICENSE.txt. */
