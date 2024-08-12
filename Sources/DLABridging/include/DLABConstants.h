@@ -1,6 +1,6 @@
 //
 //  DLABConstants.h
-//  DLABridging
+//  DLABCore
 //
 //  Created by Takashi Mochizuki on 2017/08/26.
 //  Copyright © 2017-2024 MyCometG3. All rights reserved.
