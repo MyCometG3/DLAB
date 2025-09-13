@@ -3,7 +3,7 @@
 //  DLABCore
 //
 //  Created by Takashi Mochizuki on 2017/08/26.
-//  Copyright © 2017-2024 MyCometG3. All rights reserved.
+//  Copyright © 2017-2025 MyCometG3. All rights reserved.
 //
 
 /* This software is released under the MIT License, see LICENSE.txt. */
@@ -23,24 +23,33 @@
 
 /* =================================================================================== */
 /*
- : About unsupported feature(s):
- : Following interfaces are not supported. (Section # are from SDK 11.5 pdf)
- :
+ : Following interfaces are not supported. (Section # are from SDK 15.0 pdf)
  : 2.5.8 IDeckLinkVideoFrame3DExtensions
- : 2.5.18 IDeckLinkMemoryAllocator
- : 2.5.26 IDeckLinkGLScreenPreviewHelper
- : 2.5.27 IDeckLinkCocoaScreenPreviewCallback
- : 2.5.28 IDeckLinkDX9ScreenPreviewHelper
- : 2.5.35 IDeckLinkEncoderInput
- : 2.5.36 IDeckLinkEncoderInputCallback
- : 2.5.37 IDeckLinkEncoderPacket
- : 2.5.38 IDeckLinkEncoderVideoPacket
- : 2.5.39 IDeckLinkEncoderAudioPacket
- : 2.5.40 IDeckLinkH265NALPacket
- : 2.5.41 IDeckLinkEncoderConfiguration
- : 2.5.44 IDeckLinkVideoConversion
- : 2.6.x Any Streaming Interface APIs
- */
+ : 2.5.25 IDeckLinkGLScreenPreviewHelper
+ : 2.5.26 IDeckLinkCocoaScreenPreviewCallback
+ : 2.5.27 IDeckLinkDX9ScreenPreviewHelper
+ : 2.5.34 IDeckLinkEncoderInput
+ : 2.5.35 IDeckLinkEncoderInputCallback
+ : 2.5.36 IDeckLinkEncoderPacket
+ : 2.5.37 IDeckLinkEncoderVideoPacket
+ : 2.5.38 IDeckLinkEncoderAudioPacket
+ : 2.5.39 IDeckLinkH265NALPacket
+ : 2.5.40 IDeckLinkEncoderConfiguration
+ : 2.5.43 IDeckLinkVideoConversion
+ : 2.5.49 IDeskLinkMetalScreenPreviewHelper
+ : 2.5.50 IDeckLinkWPFDX9ScreenPreviewHelper
+ : 2.5.51 IDeckLinkMacOutput
+ : 2.5.52 IDeckLinkMacVideoBuffer
+ : 2.5.53 IDeckLinkVideoBuffer
+ : 2.5.54 IDeckLinkVideoBufferAllocatorProvider
+ : 2.5.55 IDeckLinkVideoBufferAllocator
+ : 2.5.57 IDeckLinkIPExtensions
+ : 2.5.58 IDeckLinkIPFlowIterator
+ : 2.5.59 IDeckLinkIPFlow
+ : 2.5.60 IDeckLinkIPFlowAttributes
+ : 2.5.61 IDeckLinkIPFlowStatus
+ : 2.5.62 IDeckLinkIPFlowSetting
+ : 2.6.x Any Streaming Interface APIs */
 /* =================================================================================== */
 
 NS_ASSUME_NONNULL_BEGIN

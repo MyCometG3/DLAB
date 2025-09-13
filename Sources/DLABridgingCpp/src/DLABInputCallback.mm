@@ -3,7 +3,7 @@
 //  DLABCore
 //
 //  Created by Takashi Mochizuki on 2017/08/26.
-//  Copyright © 2017-2024 MyCometG3. All rights reserved.
+//  Copyright © 2017-2025 MyCometG3. All rights reserved.
 //
 
 /* This software is released under the MIT License, see LICENSE.txt. */
@@ -19,16 +19,18 @@ DLABInputCallback::DLABInputCallback(id<DLABInputCallbackDelegate> delegate)
 
 HRESULT DLABInputCallback::VideoInputFormatChanged(BMDVideoInputFormatChangedEvents notificationEvents, IDeckLinkDisplayMode *newDisplayMode, BMDDetectedVideoInputFormatFlags detectedSignalFlags)
 {
-    if([delegate respondsToSelector:@selector(didChangeVideoInputFormat:displayMode:flags:)]) {
-        [delegate didChangeVideoInputFormat:notificationEvents displayMode:newDisplayMode flags:detectedSignalFlags];
+    if(delegate && [delegate respondsToSelector:@selector(didChangeVideoInputFormat:displayMode:flags:)]) {
+        id<DLABInputCallbackDelegate> strongDelegate = delegate;
+        [strongDelegate didChangeVideoInputFormat:notificationEvents displayMode:newDisplayMode flags:detectedSignalFlags];
     }
     return S_OK;
 }
 
 HRESULT DLABInputCallback::VideoInputFrameArrived(IDeckLinkVideoInputFrame* videoFrame, IDeckLinkAudioInputPacket* audioPacket)
 {
-    if([delegate respondsToSelector:@selector(didReceiveVideoInputFrame:audioInputPacket:)]) {
-        [delegate didReceiveVideoInputFrame:videoFrame audioInputPacket:audioPacket];
+    if(delegate && [delegate respondsToSelector:@selector(didReceiveVideoInputFrame:audioInputPacket:)]) {
+        id<DLABInputCallbackDelegate> strongDelegate = delegate;
+        [strongDelegate didReceiveVideoInputFrame:videoFrame audioInputPacket:audioPacket];
     }
     return S_OK;
 }
@@ -45,6 +47,11 @@ HRESULT DLABInputCallback::QueryInterface(REFIID iid, LPVOID *ppv)
         return S_OK;
     }
     if (memcmp(&iid, &IID_IDeckLinkInputCallback, sizeof(REFIID)) == 0) {
+        *ppv = (IDeckLinkInputCallback *)this;
+        AddRef();
+        return S_OK;
+    }
+    if (memcmp(&iid, &IID_IDeckLinkInputCallback_v14_2_1, sizeof(REFIID)) == 0) {
         *ppv = (IDeckLinkInputCallback *)this;
         AddRef();
         return S_OK;

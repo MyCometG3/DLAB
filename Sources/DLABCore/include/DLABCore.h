@@ -17,14 +17,14 @@
 @import Accelerate;
 @import AudioToolbox;
 
-#import <DLABConstants.h>
-#import <DLABBrowser.h>
-#import <DLABDevice.h>
 #import <DLABAudioSetting.h>
-#import <DLABVideoSetting.h>
-#import <DLABTimecodeSetting.h>
-#import <DLABProfileAttributes.h>
-#import <DLABFrameMetadata.h>
+#import <DLABBrowser.h>
+#import <DLABConstants.h>
 #import <DLABDeckControl.h>
+#import <DLABDevice.h>
+#import <DLABFrameMetadata.h>
+#import <DLABProfileAttributes.h>
+#import <DLABTimecodeSetting.h>
+#import <DLABVideoSetting.h>
 
 #endif /* DLABCore_h */

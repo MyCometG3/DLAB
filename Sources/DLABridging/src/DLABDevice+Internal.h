@@ -3,13 +3,21 @@
 //  DLABCore
 //
 //  Created by Takashi Mochizuki on 2017/08/26.
-//  Copyright © 2017-2024 MyCometG3. All rights reserved.
+//  Copyright © 2017-2025 MyCometG3. All rights reserved.
 //
 
 /* This software is released under the MIT License, see LICENSE.txt. */
 
 #import <DLABDevice.h>
 #import <DeckLinkAPI.h>
+
+#import <DeckLinkAPI_v14_2_1.h>
+#import <DeckLinkAPIScreenPreviewCallback_v14_2_1.h>
+#import <DeckLinkAPIVideoFrame_v14_2_1.h>
+#import <DeckLinkAPIVideoInput_v14_2_1.h>
+#import <DeckLinkAPIVideoOutput_v14_2_1.h>
+
+#import <DeckLinkAPIVideoInput_v11_5_1.h>
 
 #import <DeckLinkAPIVideoInput_v11_4.h>
 #import <DeckLinkAPIVideoOutput_v11_4.h>

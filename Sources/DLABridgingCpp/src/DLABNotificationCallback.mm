@@ -3,7 +3,7 @@
 //  DLABCore
 //
 //  Created by Takashi Mochizuki on 2017/08/26.
-//  Copyright © 2017-2024 MyCometG3. All rights reserved.
+//  Copyright © 2017-2025 MyCometG3. All rights reserved.
 //
 
 /* This software is released under the MIT License, see LICENSE.txt. */
@@ -17,8 +17,9 @@ DLABNotificationCallback::DLABNotificationCallback(id<DLABNotificationCallbackDe
 
 HRESULT DLABNotificationCallback::Notify(BMDNotifications topic, uint64_t param1, uint64_t param2)
 {
-    if ([delegate respondsToSelector:@selector(notify:param1:param2:)]) {
-        [delegate notify:topic param1:param1 param2:param2];
+    if (delegate && [delegate respondsToSelector:@selector(notify:param1:param2:)]) {
+        id<DLABNotificationCallbackDelegate> strongDelegate = delegate;
+        [strongDelegate notify:topic param1:param1 param2:param2];
     }
     return S_OK;
 }

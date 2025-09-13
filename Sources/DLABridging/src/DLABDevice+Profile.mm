@@ -3,7 +3,7 @@
 //  DLABCore
 //
 //  Created by Takashi Mochizuki on 2020/03/14.
-//  Copyright © 2020-2024 MyCometG3. All rights reserved.
+//  Copyright © 2020-2025 MyCometG3. All rights reserved.
 //
 
 /* This software is released under the MIT License, see LICENSE.txt. */
@@ -28,7 +28,7 @@
     if (delegate) {
         DLABProfileAttributes* attrObj = [[DLABProfileAttributes alloc] initWithProfile:profile];
         if (attrObj) {
-            __weak __typeof__(self) wself = self;
+            __weak typeof(self) wself = self;
             [self delegate_sync:^{
                 [delegate willApplyProfileAttributes:attrObj
                                             toDevice:wself
@@ -46,7 +46,7 @@
     if (delegate) {
         DLABProfileAttributes* attrObj = [[DLABProfileAttributes alloc] initWithProfile:profile];
         if (attrObj) {
-            __weak __typeof__(self) wself = self;
+            __weak typeof(self) wself = self;
             [self delegate_sync:^{
                 [delegate didApplyProfileAttributes:attrObj
                                            toDevice:wself]; // sync

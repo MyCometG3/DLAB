@@ -1,4 +1,4 @@
-// swift-tools-version: 5.7
+// swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -7,7 +7,7 @@ let headerPath: [CXXSetting] = [.headerSearchPath("include"), .headerSearchPath(
 
 let package = Package(
     name: "DLAB",
-    platforms: [.macOS(.v10_14)],
+    platforms: [.macOS(.v11)],
     products: [
         .library(name: "DLABCapture", targets: ["DLABCapture"]),
         .library(name: "DLABCore", targets: ["DLABCore"]),
@@ -26,7 +26,7 @@ let package = Package(
         .testTarget(name: "DLABCoreTests", dependencies: ["DLABCore"]),
     ]
     
-    , swiftLanguageVersions: [.v5]
+    , swiftLanguageModes: [.v6]
     , cLanguageStandard: .gnu17
     , cxxLanguageStandard: .gnucxx20
 )

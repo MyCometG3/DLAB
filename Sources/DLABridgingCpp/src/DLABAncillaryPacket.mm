@@ -3,7 +3,7 @@
 //  DLABCore
 //
 //  Created by Takashi Mochizuki on 2020/02/26.
-//  Copyright © 2020-2024 MyCometG3. All rights reserved.
+//  Copyright © 2020-2025 MyCometG3. All rights reserved.
 //
 
 /* This software is released under the MIT License, see LICENSE.txt. */
@@ -76,6 +76,17 @@ uint8_t DLABAncillaryPacket::GetDataStreamIndex(void)
 HRESULT DLABAncillaryPacket::QueryInterface(REFIID iid, LPVOID *ppv)
 {
     *ppv = NULL;
+    CFUUIDBytes iunknown = CFUUIDGetUUIDBytes(IUnknownUUID);
+    if (memcmp(&iid, &iunknown, sizeof(REFIID)) == 0) {
+        *ppv = this;
+        AddRef();
+        return S_OK;
+    }
+    if (memcmp(&iid, &IID_IDeckLinkAncillaryPacket, sizeof(REFIID)) == 0) {
+        *ppv = (IDeckLinkAncillaryPacket *)this;
+        AddRef();
+        return S_OK;
+    }
     return E_NOINTERFACE;
 }
 

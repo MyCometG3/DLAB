@@ -3,23 +3,74 @@
 //  DLABCapture
 //
 //  Created by Takashi Mochizuki on 2017/10/31.
-//  Copyright © 2017-2024 MyCometG3. All rights reserved.
+//  Copyright © 2017-2025 MyCometG3. All rights reserved.
 //
 
 import Cocoa
 import AVFoundation
 import CoreVideo
 
+/// Thread safe backing store - works with deinit and nonisolated func.
+fileprivate final class CaptureVideoPreviewCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private func withLock<T>(_ block: () -> T) -> T {
+        lock.lock(); defer { lock.unlock() }
+        return block()
+    }
+    
+    private var preparedValue: Bool = false
+    var prepared: Bool {
+        get { withLock { preparedValue } }
+        set { withLock { preparedValue = newValue } }
+    }
+    private var donotEnqueueValue: Bool = false
+    var donotEnqueue: Bool {
+        get { withLock { donotEnqueueValue } }
+        set { withLock { donotEnqueueValue = newValue } }
+    }
+    private var verboseValue: Bool = false
+    var verbose: Bool {
+        get { withLock { verboseValue } }
+        set { withLock { verboseValue = newValue } }
+    }
+    private var debugLogValue: Bool = false
+    var debugLog: Bool {
+        get { withLock { debugLogValue } }
+        set { withLock { debugLogValue = newValue } }
+    }
+    
+    private var videoLayerValue: AVSampleBufferDisplayLayer? = nil
+    var videoLayer: AVSampleBufferDisplayLayer? {
+        get { withLock { videoLayerValue } }
+        set { withLock { videoLayerValue = newValue } }
+    }
+    private var caDisplayLinkValue: AnyObject? = nil
+    var caDisplayLink: AnyObject? {
+        get { withLock { caDisplayLinkValue } }
+        set { withLock { caDisplayLinkValue = newValue } }
+    }
+    private var displayLinkValue: CVDisplayLink? = nil
+    var displayLink :CVDisplayLink? {
+        get { withLock { displayLinkValue } }
+        set { withLock { displayLinkValue = newValue } }
+    }
+}
+
+@MainActor
 public class CaptureVideoPreview: NSView, CALayerDelegate {
     /* ================================================ */
     // MARK: - public properties
     /* ================================================ */
     
     /// Backing layer of AVSampleBufferDisplayLayer
-    public private(set) var videoLayer :AVSampleBufferDisplayLayer? = nil
+    public private(set) var videoLayer :AVSampleBufferDisplayLayer? {
+        get { cache.videoLayer }
+        set { cache.videoLayer = newValue }
+    }
     
     /// User preferred pixel aspect ratio. (1.0 = square pixel)
     public var customPixelAspectRatio :CGFloat? = nil
+    
     /// sampleBuffer native pixel aspect ratio (pasp ImageDescription Extension)
     public private(set) var sampleAspectRatio :CGFloat? = nil
     /// image size of encoded rect
@@ -30,56 +81,85 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
     public private(set) var sampleProductionSize :CGSize? = nil
     
     /// Verbose mode (debugging purpose)
-    public var verbose :Bool = false
+    public var verbose :Bool {
+        get { cache.verbose }
+        set { cache.verbose = newValue }
+    }
+    
+    /// Debug mode
+    public var debugLog: Bool {
+        get { cache.debugLog }
+        set { cache.debugLog = newValue }
+    }
+    
+    /// Prepared or not
+    private var prepared :Bool {
+        get { cache.prepared }
+        set { cache.prepared = newValue }
+    }
     
     /* ================================================ */
     // MARK: - private properties
     /* ================================================ */
     
-    /// Prepared or not
-    private var prepared :Bool = false
-    /// Processing dispatch queue
-    private var processingQueue :DispatchQueue? = nil
-    /// Processing dispatch queue label
-    private let processingQueueLabel = "videoPreview"
-    /// Processing dispatch queue key
-    private let processingQueueSpecificKey = DispatchSpecificKey<Void>()
-    
     /// Initial value of hostTime - used for media timebase
     private var baseHostTime :UInt64 = 0
+    
     /// Initial value of hostTime offset in sec - used for media timebase
     private var baseOffsetInSec :Float64 = 0.0
     
-    /// CVPixelBufferPool
-    private var pixelBufferPool :CVPixelBufferPool? = nil
+    /// Enqueued hostTime
+    private var lastQueuedHostTime :UInt64 = 0
+    
+    /// CaptureVideoPreview cache w/ nonisolated func support
+    nonisolated private let cache = CaptureVideoPreviewCache()
+    
+    /// SampleBufferHelper
+    private let sbHelper = VideoSampleBufferHelper()
     
     /* ================================================ */
     // MARK: - private properties (displayLink)
     /* ================================================ */
     
-    /// Debug mode
-    private let debugLog = false
+    /// Configure DisplayLink - CADisplayLink or CVDisplayLink
+    private var useDisplayLink = true
+    private var preferCADisplayLink = true
     
-    /// Debug DisplayLink
-    private let useDisplayLink = false // experimental
-    /// Debug Non-Delayed queueing
-    private let enqueueImmediately = true // experimental
-    /// Debug Timestamp Strict checking
-    private let checkPresentationTime = false // experimental
+    /// Background queueing flag (Thread-safe)
+    private var donotEnqueue: Bool {
+        get { cache.donotEnqueue }
+        set { cache.donotEnqueue = newValue }
+    }
     
-    /// Enqueued hostTime
-    private var lastQueuedHostTime :UInt64 = 0
-    /// last SampleBuffer's Presentation endTime
-    private var prevEndTime = CMTime.zero
+    /// CADisplayLink
+    /// - NOTE: CADisplayLink is undef before macOS 14.0.
+    /// - NOTE: @available(macOS 14.0, *) does not work w/ stored property.
+    /// - NOTE: use AnyObject to avoid @available check
+    private var caDisplayLink: AnyObject? {
+        get { cache.caDisplayLink }
+        set { cache.caDisplayLink = newValue }
+    }
     
-    /// CoreVideo DisplayLink
-    private var displayLink :CVDisplayLink? = nil
-    /// Idle monitor limitation in seconds
-    private let FREEWHEELING_PERIOD_IN_SECONDS :Float64 = 0.20
-    /// Requested hostTime in CVDisplayLinkOutputHandler
-    private var lastRequestedHostTime :UInt64 = 0
+    /// CVDisplayLink
+    private var displayLink :CVDisplayLink? {
+        get { cache.displayLink }
+        set { cache.displayLink = newValue }
+    }
+    
+    /// Suspend DisplayLink on idle (experimental)
+    private var suspendDisplayLinkOnIdle: Bool = false
+    
+    /// Idle monitor limitation in seconds (experimental)
+    private var FREEWHEELING_PERIOD_IN_SECONDS :Float64 = 1.0
+    
     /// VideoSampleBuffer to enqueue on Output Handler
     private var newSampleBuffer :CMSampleBuffer? = nil
+    
+    /// Handles sampleBuffers that arrive late
+    private var useDisplayImmediatelyFlag :Bool = true
+    
+    /// Handles sampleBuffers that arrive too late
+    private var useDoNotDisplayFlag :Bool = true
     
     /* ================================================ */
     // MARK: - General NSView methods
@@ -94,17 +174,48 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
     required public init?(coder decoder: NSCoder) {
         super.init(coder: decoder)
         
-        // setup() moved to awakeFromNib()
+        setup()
     }
     
     override public func awakeFromNib() {
         super.awakeFromNib()
         
-        setup()
+        // setup() moved to init(coder:)
     }
     
     deinit {
-        cleanup()
+        deinitHelper()
+    }
+    
+    nonisolated private func deinitHelper() {
+        printVerbose("CaptureVideoPreview.\(#function)")
+        if !cache.prepared {
+            return
+        }
+        
+        cache.prepared = false
+        cache.donotEnqueue = true
+        
+        if let caDisplayLink = cache.caDisplayLink, #available(macOS 14.0, *) {
+            caDisplayLink.invalidate()
+            cache.caDisplayLink = nil
+        } else {
+            let notification = NSWindow.didChangeScreenNotification
+            NotificationCenter.default.removeObserver(self,
+                                                      name: notification,
+                                                      object: nil)
+            if let displayLink = cache.displayLink {
+                if CVDisplayLinkIsRunning(displayLink) {
+                    _ = CVDisplayLinkStop(displayLink)
+                }
+                cache.displayLink = nil
+            }
+        }
+        
+        if let videoLayer = cache.videoLayer {
+            videoLayer.removeFromSuperlayer()
+            cache.videoLayer = nil
+        }
     }
     
     override public var wantsUpdateLayer: Bool {
@@ -112,67 +223,90 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
     }
     
     override public func updateLayer() {
-        if useDisplayLink {
+        if useDisplayLink, prepared {
             _ = activateDisplayLink()
         }
-        layoutSublayers(of: layer!)
+        layoutSublayersCore(of: layer!)
     }
     
     /* ================================================ */
     // MARK: - public functions
     /* ================================================ */
     
+    /// Prepare videoPreview with DisplayLink.
+    /// - Parameters:
+    ///   - useDisplayLink: true to use DisplayLink, false to use instant enqueue.
+    ///   - preferCADisplayLink: true to prefer CADisplayLink over CVDisplayLink
+    /// - NOTE: CADisplayLink requires  macOS 14.0 or later.
+    public func prepareWithDisplayLink(useDisplayLink: Bool = true, preferCADisplayLink: Bool = true) {
+        self.useDisplayLink = useDisplayLink
+        self.preferCADisplayLink = preferCADisplayLink
+        prepare()
+    }
+    
     /// Prepare videoPreview and CVDisplayLink.
     public func prepare() {
-        queueSync {
-            guard prepared == false else { return }
+        printVerbose("CaptureVideoPreview.\(#function)")
+        if prepared {
+            printVerbose("NOTICE: CaptureVideoPreview is already prepared. (\(#function))")
+            return
+        }
+        do {
+            guard let baseLayer = layer else {
+                preconditionFailure("baseLayer is not available.")
+            }
+            guard let videoLayer = videoLayer else {
+                preconditionFailure("videoLayer is not available.")
+            }
             
-            prepared = true
+            // Initialize Timebase
+            resetTimebase(nil)
+            flushImage()
             
             // Add CMSampleBufferDisplayLayer to SubLayer
-            if let baseLayer = layer, let vLayer = videoLayer {
-                if vLayer.superlayer == nil {
-                    // NSLog("addSubLayer")
-                    DispatchQueue.main.async {
-                        baseLayer.addSublayer(vLayer)
-                    }
-                }
+            if videoLayer.superlayer == nil {
+                baseLayer.addSublayer(videoLayer)
             }
             
             if useDisplayLink {
                 prepareDisplayLink()
             }
+            
+            prepared = true
+            donotEnqueue = !prepared
         }
     }
     
     /// Shutdown videoPreview and CVDisplayLink.
     public func shutdown() {
-        queueSync {
-            guard prepared == true else { return }
+        printVerbose("CaptureVideoPreview.\(#function)")
+        if !prepared {
+            printVerbose("NOTICE: CaptureVideoPreview is not prepared. (\(#function))")
+            return
+        }
+        do {
+            guard let videoLayer = videoLayer else {
+                preconditionFailure("videoLayer is not available.")
+            }
             
             prepared = false
+            donotEnqueue = !prepared
             
             if useDisplayLink {
                 shutdownDisplayLink()
             }
             
             // Remove CMSampleBufferDisplayLayer from SubLayer
-            if let vLayer = videoLayer, vLayer.superlayer != nil {
-                // NSLog("removeSubLayer")
-                vLayer.removeFromSuperlayer()
+            if videoLayer.superlayer != nil {
+                videoLayer.removeFromSuperlayer()
             }
+            
+            // Initialize Timebase
+            resetTimebase(nil)
+            flushImage()
             
             //
-            resetTimebase(nil)
-            
-            if let vLayer = videoLayer {
-                vLayer.flushAndRemoveImage()
-            }
-            
-            if let pixelBufferPool = pixelBufferPool {
-                CVPixelBufferPoolFlush(pixelBufferPool, .excessBuffers)
-                self.pixelBufferPool = nil
-            }
+            lastQueuedHostTime = 0
             
             //
             sampleAspectRatio = nil
@@ -182,44 +316,101 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
         }
     }
     
+    /// Non-blocking enqueue of CMSampleBuffer.
+    /// - Parameter sb: Video CMSampleBuffer
+    public nonisolated func queueSampleBuffer(_ sb: CMSampleBuffer) {
+        let info = UnsafeSampleBufferWrapper(sampleBuffer: sb)
+        Task { [weak self] in
+            guard let self = self else { return }
+            await self.queueSampleBufferAsync(info.sampleBuffer)
+        }
+    }
+    
+    public func queueSampleBufferAsync(wrapper sb: UnsafeSampleBufferWrapper) async {
+        await queueSampleBufferAsync(sb.sampleBuffer)
+    }
+    
     /// Enqueue new Video CMSampleBuffer
     ///
     /// - Parameter sampleBuffer: Video CMSampleBuffer
-    /// - Returns: False if failed to enqueue
-    public func queueSampleBuffer(_ sb :CMSampleBuffer) {
-        guard let sampleBuffer = deeperCopyVideoSampleBuffer(sbIn: sb)
-            else { return }
+    /// - @discussion: If `useDisplayLink` is false, this function will enqueue sampleBuffer immediately to AVSampleBufferDisplayLayer.
+    public func queueSampleBufferAsync(_ sb :CMSampleBuffer) async {
+        if donotEnqueue {
+            printVerbose("CaptureVideoPreview.\(#function)",
+                         "NOTICE: DisplayLink is suspended. Ignore enqueue request. (\(#function))")
+            return
+        }
         
-        extractSampleRect(sampleBuffer)
+        //
+        let sbwIn = UnsafeSampleBufferWrapper(sampleBuffer: sb)
+        let sbwOut = await sbHelper.deeperCopyVideoSampleBufferAsync(sbwIn: sbwIn)
+        guard let sampleBuffer = sbwOut?.sampleBuffer else {
+            preconditionFailure("Failed to duplicate CMSampleBuffer")
+        }
         
+        // Parse ImageBuffer properties of CMSampleBuffer
+        if sbHelper.updateSampleRect(sbwIn) {
+            sampleAspectRatio = sbHelper.sampleAspectRatio
+            sampleEncodedSize = sbHelper.sampleEncodedSize
+            sampleCleanSize = sbHelper.sampleCleanSize
+            sampleProductionSize = sbHelper.sampleProductionSize
+            printVerbose("CaptureVideoPreview.\(#function)",
+                         "INFO: Update video sample property.")
+            
+            // Ensure latest SampleRect/AspectRatio applied
+            needsDisplay = true
+        }
+        
+        // Debugging
+        let startTime :CMTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let duration :CMTime = CMSampleBufferGetDuration(sampleBuffer)
+        let endTime :CMTime = CMTimeAdd(startTime, duration)
+        let startInSec :Float64 = CMTimeGetSeconds(startTime)
+        let durationInSec :Float64 = CMTimeGetSeconds(duration)
+        let endInSec :Float64 = CMTimeGetSeconds(endTime)
+        if debugLog {
+            let strStart = String(format:"%08.3f", startInSec)
+            let strEnd = String(format:"%08.3f", endInSec)
+            let strDuration = String(format:"%08.3f", durationInSec)
+            printDebug("Enqueue: start(\(strStart)) end(\(strEnd)) dur(\(strDuration))")
+        }
+        
+        // Initialize Timebase if this is first sampleBuffer
+        if baseHostTime == 0 {
+            resetTimebase(sampleBuffer)
+            flushImage()
+        }
+        
+        //
         if useDisplayLink {
-            queueSampleBufferUsingDisplayLink(sampleBuffer)
+            // Keep this for next displayLink callback
+            newSampleBuffer = sampleBuffer
         } else {
-            queueSync {
-                if baseHostTime == 0 {
-                    // Initialize Timebase if this is first sampleBuffer
-                    resetTimebase(sampleBuffer)
+            // Instant queueing
+            do {
+                guard let vLayer = videoLayer else {
+                    preconditionFailure("videoLayer is nil")
                 }
                 
-                if let vLayer = videoLayer {
-                    let statusOK :Bool = (vLayer.status != .failed)
-                    let ready :Bool = vLayer.isReadyForMoreMediaData
-                    if statusOK && ready {
-                        checkGAP(sampleBuffer)
-                        checkDelayed(sampleBuffer)
-                        
-                        // Enqueue samplebuffer
-                        vLayer.enqueue(sampleBuffer)
-                    } else {
-                        if self.verbose {
-                            var eStr = ""
-                            if !statusOK { eStr += "StatusFailed " }
-                            if !ready { eStr += "NotReady " }
-                            NSLog("NOTICE: videoLayer is not ready to enqueue. \(eStr)")
-                        }
-                        
-                        flushImage()
-                    }
+                let statusOK :Bool = (vLayer.status != .failed)
+                let ready :Bool = vLayer.isReadyForMoreMediaData
+                if statusOK && ready {
+                    
+                    // Enqueue samplebuffer
+                    vLayer.enqueue(sampleBuffer)
+                    lastQueuedHostTime = CVGetCurrentHostTime()
+                    
+                    // Release enqueued CMSampleBuffer
+                    newSampleBuffer = nil
+                    
+                } else {
+                    var eStr = ""
+                    if !statusOK { eStr += "StatusFailed " }
+                    if !ready { eStr += "NotReady " }
+                    printVerbose("CaptureVideoPreview.\(#function)",
+                                 "ERROR:(Instant queueing): videoLayer is not ready to enqueue. \(eStr)")
+                    
+                    flushImage()
                 }
             }
         }
@@ -231,12 +422,6 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
     
     /// Common initialization func
     private func setup() {
-        // Prepare DispatchQueue for sequencial processing
-        processingQueue = DispatchQueue.init(label: processingQueueLabel)
-        if let processingQueue = processingQueue {
-            processingQueue.setSpecific(key: processingQueueSpecificKey, value: ())
-        }
-        
         // Prepare backing VideoLayer
         videoLayer = AVSampleBufferDisplayLayer()
         wantsLayer = true
@@ -257,344 +442,51 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
                 _ = CMTimebaseSetTime(timebase, time: CMTime.zero)
                 vLayer.controlTimebase = timebase
             } else {
-                NSLog("ERROR: Failed to setup videoLayer's controlTimebase")
+                printVerbose("CaptureVideoPreview.\(#function)",
+                             "ERROR: Failed to setup videoLayer's controlTimebase")
             }
         } else {
-            NSLog("ERROR: Failed to setup videoLayer.")
+            printVerbose("CaptureVideoPreview.\(#function)",
+                         "ERROR: Failed to setup videoLayer.")
         }
     }
     
-    /// clean up func
-    private func cleanup() {
-        shutdown()
-        
-        videoLayer = nil
-        processingQueue = nil
-    }
-    
-    /// Process block in sync
-    ///
-    /// - Parameter block: block to process
-    private func queueSync(_ block :(()->Void)) {
-        guard let queue = processingQueue else { return }
-        
-        if nil != DispatchQueue.getSpecific(key: processingQueueSpecificKey) {
-            block()
-        } else {
-            queue.sync(execute: block)
+    nonisolated internal func printVerbose(_ message: String...) {
+        if cache.verbose {
+            let output = message.joined(separator: "\n")
+            print(output)
         }
     }
     
-    /// Process block in async
-    ///
-    /// - Parameter block: block to process
-    private func queueAsync(_ block :@escaping ()->Void) {
-        guard let queue = processingQueue else { return }
-        
-        if nil != DispatchQueue.getSpecific(key: processingQueueSpecificKey) {
-            queue.async(execute: block)
-            //block()
-        } else {
-            queue.async(execute: block)
+    nonisolated internal func printDebug(_ message: String...) {
+        if cache.debugLog {
+            let output = message.joined(separator: "\n")
+            print(output)
         }
-    }
-    
-    private func deeperCopyVideoSampleBuffer(sbIn :CMSampleBuffer) -> CMSampleBuffer? {
-        var fdOut :CMFormatDescription? = nil
-        var pbOut :CVPixelBuffer? = nil
-        var sbOut :CMSampleBuffer? = nil
-        
-        // Duplicate CMFormatDescription
-        let fd :CMFormatDescription? = CMSampleBufferGetFormatDescription(sbIn)
-        if let fd = fd {
-            let dim :CMVideoDimensions = CMVideoFormatDescriptionGetDimensions(fd)
-            let subType :CMVideoCodecType = CMFormatDescriptionGetMediaSubType(fd)
-            let ext :CFDictionary? = CMFormatDescriptionGetExtensions(fd)
-            CMVideoFormatDescriptionCreate(allocator: kCFAllocatorDefault,
-                                           codecType: subType, width: dim.width, height: dim.height, extensions: ext,
-                                           formatDescriptionOut: &fdOut)
-        }
-        
-        // Duplicate CVPixelBuffer
-        let pb :CVPixelBuffer? = CMSampleBufferGetImageBuffer(sbIn)
-        if let pb = pb {
-            let width :Int = CVPixelBufferGetWidth(pb)
-            let height :Int = CVPixelBufferGetHeight(pb)
-            let format :OSType = CVPixelBufferGetPixelFormatType(pb)
-            let alignment :Int = CVPixelBufferGetBytesPerRow(pb)
-            let dict = [
-                kCVPixelBufferPixelFormatTypeKey: format as CFNumber,
-                kCVPixelBufferWidthKey: width as CFNumber,
-                kCVPixelBufferHeightKey: height as CFNumber,
-                kCVPixelBufferBytesPerRowAlignmentKey: alignment as CFNumber,
-                kCVPixelBufferIOSurfacePropertiesKey: [:] as [CFString : Any],
-                ] as [CFString : Any] as CFDictionary
-            if let pool = pixelBufferPool, let pbAttr = CVPixelBufferPoolGetPixelBufferAttributes(pool) {
-                // Check if pixelBufferPool is compatible or not
-                let typeOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferPixelFormatTypeKey)
-                let widthOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferWidthKey)
-                let heightOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferHeightKey)
-                let strideOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferBytesPerRowAlignmentKey)
-                if !(typeOK && widthOK && heightOK && strideOK) {
-                    CVPixelBufferPoolFlush(pool, .excessBuffers)
-                    self.pixelBufferPool = nil
-                }
-            }
-            if pixelBufferPool == nil {
-                let poolAttr = [
-                    kCVPixelBufferPoolMinimumBufferCountKey: 4 as CFNumber
-                    ] as CFDictionary
-                let err = CVPixelBufferPoolCreate(kCFAllocatorDefault, poolAttr, dict, &pixelBufferPool)
-                if err != kCVReturnSuccess {
-                    NSLog("ERROR: Failed to create CVPixelBufferPool")
-                    return nil
-                }
-            }
-            if let pixelBufferPool = pixelBufferPool {
-                CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pixelBufferPool, &pbOut)
-            }
-            
-            if let pbOut = pbOut {
-                CVPixelBufferLockBaseAddress(pb, .readOnly)
-                CVPixelBufferLockBaseAddress(pbOut, [])
-                if CVPixelBufferIsPlanar(pbOut) {
-                    let numPlane = CVPixelBufferGetPlaneCount(pbOut)
-                    for plane in 0..<numPlane {
-                        let src = CVPixelBufferGetBaseAddressOfPlane(pb, plane)
-                        let dst = CVPixelBufferGetBaseAddressOfPlane(pbOut, plane)
-                        let height = CVPixelBufferGetHeightOfPlane(pb, plane)
-                        let stride = CVPixelBufferGetBytesPerRowOfPlane(pb, plane)
-                        memcpy(dst, src, height*stride)
-                    }
-                } else {
-                    let src = CVPixelBufferGetBaseAddress(pb)
-                    let dst = CVPixelBufferGetBaseAddress(pbOut)
-                    let height = CVPixelBufferGetHeight(pb)
-                    let stride = CVPixelBufferGetBytesPerRow(pb)
-                    memcpy(dst, src, height*stride)
-                }
-                CVPixelBufferUnlockBaseAddress(pb, .readOnly)
-                CVPixelBufferUnlockBaseAddress(pbOut, [])
-            }
-        }
-        
-        // Create new CMSampleBuffer
-        if let fd = fdOut, let pb = pbOut {
-            let dict = CMFormatDescriptionGetExtensions(fd)
-            CVBufferSetAttachments(pb, dict!, .shouldPropagate)
-            
-            var timeInfo = CMSampleTimingInfo()
-            CMSampleBufferGetSampleTimingInfo(sbIn, at: 0, timingInfoOut: &timeInfo)
-            
-            CMSampleBufferCreateReadyWithImageBuffer(allocator: kCFAllocatorDefault,
-                                                     imageBuffer: pb,
-                                                     formatDescription: fd,
-                                                     sampleTiming: &timeInfo,
-                                                     sampleBufferOut: &sbOut)
-        }
-        
-        return sbOut
-    }
-    
-    /* ================================================ */
-    // MARK: -
-    /* ================================================ */
-    
-    /// Parse ImageBuffer properties of CMSampleBuffer
-    ///
-    /// - Parameter sampleBuffer: CMSampleBuffer to parse
-    private func extractSampleRect(_ sampleBuffer :CMSampleBuffer) {
-        let pixelBuffer :CVImageBuffer? = CMSampleBufferGetImageBuffer(sampleBuffer)
-        if let pixelBuffer = pixelBuffer {
-            let encodedSize = CGSize(width: CVPixelBufferGetWidth(pixelBuffer),
-                                     height: CVPixelBufferGetHeight(pixelBuffer))
-            
-            var sampleAspect : CGFloat = 1.0
-            if let dict = extractCFDictionary(pixelBuffer, kCVImageBufferPixelAspectRatioKey) {
-                let aspect = extractCGSize(dict,
-                                           kCVImageBufferPixelAspectRatioHorizontalSpacingKey,
-                                           kCVImageBufferPixelAspectRatioVerticalSpacingKey)
-                if aspect != CGSize.zero {
-                    sampleAspect = aspect.width / aspect.height
-                }
-            }
-            
-            var cleanSize : CGSize = encodedSize // Initial value is full size (= no clean aperture)
-            if let dict = extractCFDictionary(pixelBuffer, kCVImageBufferCleanApertureKey) {
-                var clapWidth = extractRational(dict, kCMFormatDescriptionKey_CleanApertureWidthRational)
-                if clapWidth.isNaN {
-                    clapWidth = extractCGFloat(dict, kCVImageBufferCleanApertureWidthKey)
-                }
-                var clapHeight = extractRational(dict, kCMFormatDescriptionKey_CleanApertureHeightRational)
-                if clapHeight.isNaN {
-                    clapHeight = extractCGFloat(dict, kCVImageBufferCleanApertureHeightKey)
-                }
-                if !clapWidth.isNaN && !clapHeight.isNaN {
-                    let clapSize = CGSize(width: clapWidth, height: clapHeight)
-                    cleanSize = CGSize(width: clapSize.width * sampleAspect,
-                                       height: clapSize.height)
-                }
-            }
-            
-            let productionSize = CGSize(width: encodedSize.width * sampleAspect,
-                                        height: encodedSize.height)
-            
-            if (sampleAspectRatio    != sampleAspect ||
-                sampleEncodedSize    != encodedSize  ||
-                sampleCleanSize      != cleanSize    ||
-                sampleProductionSize != productionSize)
-            {
-                sampleAspectRatio    = sampleAspect
-                sampleEncodedSize    = encodedSize
-                sampleCleanSize      = cleanSize
-                sampleProductionSize = productionSize
-                
-                NSLog("INFO: Update video sample property.")
-                
-                // Apply new aspect ratio to sublayer
-                DispatchQueue.main.async {
-                    self.needsDisplay = true
-                }
-            }
-        }
-    }
-    
-    private var useCast :Bool = true
-    private func toOpaque(_ obj :AnyObject) -> UnsafeRawPointer {
-        if useCast {
-            let ptr = unsafeBitCast(obj, to: UnsafeRawPointer.self)
-            return ptr
-        } else {
-            let mutablePtr :UnsafeMutableRawPointer = Unmanaged.passUnretained(obj).toOpaque()
-            let ptr :UnsafeRawPointer = UnsafeRawPointer(mutablePtr)
-            return ptr
-        }
-    }
-    
-    private func fromOpaque<T :AnyObject>(_ ptr :UnsafeRawPointer, _ type :T.Type) -> T {
-        let val = Unmanaged<T>.fromOpaque(ptr).takeUnretainedValue()
-        return val
-    }
-    
-    /// Extract CFDictionary attachment of specified key from CVPixelBuffer
-    ///
-    /// - Parameters:
-    ///   - pixelBuffer: source CVPixelBuffer
-    ///   - key: Attachment Key
-    /// - Returns: Attachment Value (CFDictionary)
-    private func extractCFDictionary(_ pixelBuffer :CVImageBuffer, _ key :CFString) -> CFDictionary? {
-        var dict :CFDictionary? = nil
-        if let umCF = CVBufferGetAttachment(pixelBuffer, key, nil) {
-            // umCF :Unmanaged<CFTypeRef>
-            dict = (umCF.takeUnretainedValue() as! CFDictionary)
-        }
-        return dict
-    }
-    
-    /// Extract CFNumber value of specified key from CFDictionary
-    ///
-    /// - Parameters:
-    ///   - dict: source CFDictionary
-    ///   - key: Key
-    /// - Returns: value (CFNumber)
-    private func extractCFNumber(_ dict :CFDictionary, _ key :CFString) -> CFNumber? {
-        var num :CFNumber? = nil
-        let keyOpaque = toOpaque(key)
-        if let ptr = CFDictionaryGetValue(dict, keyOpaque) {
-            num = fromOpaque(ptr, CFNumber.self)
-        }
-        return num
-    }
-    
-    /// Check if two values for single key in different dictionary are equal or not.
-    /// - Parameters:
-    ///   - d1: CFDictionary
-    ///   - d2: CFDictionary
-    ///   - key: CFString
-    /// - Returns: true if equal, false if different
-    private func equalCFNumberInDictionary(_ d1 :CFDictionary, _ d2 :CFDictionary, _ key :CFString) -> Bool {
-        let val1 = extractCFNumber(d1, key)
-        let val2 = extractCFNumber(d2, key)
-        let comp = CFNumberCompare(val1, val2, nil)
-        return (comp == CFComparisonResult.compareEqualTo)
-    }
-    
-    /// Extract CFArray value of specified key from CFDictionary
-    ///
-    /// - Parameters:
-    ///   - dict: source CFDictionary
-    ///   - key: Key
-    /// - Returns: value (CFArray)
-    private func extractCFArray(_ dict :CFDictionary, _ key :CFString) -> CFArray? {
-        var array :CFArray? = nil
-        let keyOpaque = toOpaque(key)
-        if let ptr = CFDictionaryGetValue(dict, keyOpaque) {
-            array = fromOpaque(ptr, CFArray.self)
-        }
-        return array
-    }
-    
-    /// Extract CGFloat value of specified key from CFDictionary
-    ///
-    /// - Parameters:
-    ///   - dict: source CFDictionary
-    ///   - key: Key
-    /// - Returns: value (CGFloat)
-    private func extractCGFloat(_ dict :CFDictionary, _ key :CFString) -> CGFloat {
-        var val :CGFloat = CGFloat.nan
-        if let num = extractCFNumber(dict, key) {
-            if CFNumberGetValue(num, .cgFloatType, &val) == false {
-                val = CGFloat.nan
-            }
-        }
-        return val
-    }
-    
-    /// Extract CGSize value of specified key pair from CFDictionary
-    ///
-    /// - Parameters:
-    ///   - dict: source CFDictionary
-    ///   - key1: Key 1 for size.width
-    ///   - key2: Key 2 for size.height
-    /// - Returns: value (CGSize)
-    private func extractCGSize(_ dict :CFDictionary, _ key1 :CFString, _ key2 :CFString) -> CGSize {
-        var size :CGSize = CGSize.zero
-        let val1 = extractCGFloat(dict, key1)
-        let val2 = extractCGFloat(dict, key2)
-        if !val1.isNaN && !val2.isNaN {
-            size = CGSize(width: val1, height: val2)
-        }
-        return size
-    }
-    
-    /// Extract CGFloat value of specified rational key from CFDictionary
-    ///
-    /// - Parameters:
-    ///   - dict: source CFDictionary
-    ///   - key: Key for CFArray of 2 CFNumbers: numerator, denominator
-    /// - Returns: ratio value calculated from Rational (CGFloat)
-    private func extractRational(_ dict :CFDictionary, _ key :CFString) -> CGFloat {
-        var val :CGFloat = CGFloat.nan
-        let numArray :CFArray? = extractCFArray(dict, key)
-        if let numArray = numArray, CFArrayGetCount(numArray) == 2 {
-            guard let ptr0 = CFArrayGetValueAtIndex(numArray, 0) else { return val }
-            guard let ptr1 = CFArrayGetValueAtIndex(numArray, 1) else { return val }
-            let num0 = fromOpaque(ptr0, CFNumber.self)
-            let num1 = fromOpaque(ptr1, CFNumber.self)
-            var val0 :CGFloat = 1.0
-            var val1 :CGFloat = 1.0
-            if (CFNumberGetValue(num0, .cgFloatType, &val0) && CFNumberGetValue(num1, .cgFloatType, &val1)) {
-                val = (val0 / val1)
-            }
-        }
-        return val
     }
     
     /* ================================================ */
     // MARK: - CALayerDelegate and more
     /* ================================================ */
     
-    public func layoutSublayers(of targetLayer: CALayer) {
+    /// Wrapper for CALayer to use in nonisolated context
+    private struct UnsafeLayerWrapper: @unchecked Sendable {
+        var layer: CALayer
+    }
+    
+    /// Perform layoutSublayersCore on MainActor (CALayerDelegate protocol conformance)
+    /// - Parameter targetLayer: target CALayer to layout
+    nonisolated public func layoutSublayers(of targetLayer: CALayer) {
+        let targetLayerWrapper = UnsafeLayerWrapper(layer: targetLayer)
+        Task { @MainActor in
+            let targetLayer = targetLayerWrapper.layer
+            layoutSublayersCore(of: targetLayer)
+        }
+    }
+    
+    /// Perform layoutSublayersCore on MainActor
+    /// - Parameter targetLayer: target CALayer to layout
+    private func layoutSublayersCore(of targetLayer: CALayer) {
         if let baseLayer = layer, let vLayer = videoLayer {
             if targetLayer == baseLayer {
                 let viewSize = bounds.size
@@ -610,14 +502,18 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
                     vLayer.frame = targetRect
                     vLayer.videoGravity = .resize
                     CATransaction.commit()
+                    
+                    printDebug("CaptureVideoPreview.\(#function)",
+                               layerSize.debugDescription)
                 }
-                
-                //NSLog("%@ %@", #function, layerSize.debugDescription)
             }
         }
     }
     
-    public func preferredSize(of vLayer :CALayer) -> CGSize {
+    /// Calculate preferred size of videoLayer
+    /// - Parameter vLayer: AVSampleBufferDisplayLayer
+    /// - Returns: CGSize of preferred size
+    private func preferredSize(of vLayer :AVSampleBufferDisplayLayer) -> CGSize {
         if vLayer == videoLayer {
             var layerSize = bounds.size
             let viewSize :CGSize = bounds.size
@@ -630,6 +526,9 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
                 } else {
                     requestAspect = (proSize.width / proSize.height)
                 }
+            } else {
+                printDebug("CaptureVideoPreview.\(#function)",
+                           "WARNING: sampleEncodedSize or sampleProductionSize is not available.")
             }
             
             let adjustRatio :CGFloat = requestAspect / viewAspect
@@ -657,6 +556,7 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
     ///
     /// - Parameter sampleBuffer: timebase source sampleBuffer. Set nil to reset to shutdown.
     private func resetTimebase(_ sampleBuffer :CMSampleBuffer?) {
+        printVerbose("CaptureVideoPreview.\(#function)")
         do {
             if let sampleBuffer = sampleBuffer {
                 // start Media Time from sampleBuffer's presentation time
@@ -681,138 +581,74 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
                 baseOffsetInSec = 0.0
             }
         }
-    }
-    
-    /// Experimental : Check Time GAP
-    ///
-    /// - Parameter sampleBuffer: CMSampleBuffer
-    private func checkGAP(_ sampleBuffer :CMSampleBuffer) {
-        let startTime :CMTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        let duration :CMTime = CMSampleBufferGetDuration(sampleBuffer)
-        let endTime :CMTime = CMTimeAdd(startTime, duration)
-        //let startInSec :Float64 = CMTimeGetSeconds(startTime)
-        //let durationInSec :Float64 = CMTimeGetSeconds(duration)
-        let endInSec :Float64 = CMTimeGetSeconds(endTime)
-        
-        // Validate samplebuffer if time gap (lost sample) is detected
-        var isGAP = false
-        if let vLayer = videoLayer, let timebase = vLayer.controlTimebase {
-            let tbTime = CMTimeGetSeconds(CMTimebaseGetTime(timebase))
-            if tbTime >= endInSec {
-                if verbose {
-                    NSLog("NOTICE: GAP DETECTED!")
-                }
-                
-                isGAP = true
-            }
-        }
-        else { NSLog("!!!\(#line)") }
-        
-        if isGAP {
-            flushImage()
+        if debugLog {
+            let baseHostTimeInSecStr = String(format:"%012.3f", timeIntervalFromHostTime(baseHostTime))
+            let baseOffsetInSecStr = String(format:"%08.3f", baseOffsetInSec)
+            printDebug("NOTICE:\(#function) baseHostTime(s) = \(baseHostTimeInSecStr), baseOffset(s) = \(baseOffsetInSecStr)")
         }
     }
     
     /// Flush current image on videoLayer
     private func flushImage() {
+        printVerbose("CaptureVideoPreview.\(#function)")
         if let vLayer = videoLayer {
             vLayer.flushAndRemoveImage()
         }
-        else { NSLog("!!!\(#line)") }
-    }
-    
-    /// Experimental : Check late arrival
-    ///
-    /// - Parameters:
-    ///   - sampleBuffer: CMSampleBuffer
-    private func checkDelayed(_ sampleBuffer :CMSampleBuffer) {
-        let startTime :CMTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        //let duration :CMTime = CMSampleBufferGetDuration(sampleBuffer)
-        //let endTime :CMTime = CMTimeAdd(startTime, duration)
-        let startInSec :Float64 = CMTimeGetSeconds(startTime)
-        //let durationInSec :Float64 = CMTimeGetSeconds(duration)
-        //let endInSec :Float64 = CMTimeGetSeconds(endTime)
-        
-        // if sampleBuffer is delayed, mark it as "_DisplayImmediately".
-        var isLate = false
-        if let vLayer = videoLayer, let timebase = vLayer.controlTimebase {
-            let tbTime = CMTimeGetSeconds(CMTimebaseGetTime(timebase))
-            if tbTime >= startInSec {
-                if verbose {
-                    NSLog("NOTICE: DELAY DETECTED!")
-                }
-                
-                isLate = true
-            }
-        }
-        else { NSLog("!!!\(#line)") }
-        
-        if isLate {
-            refreshImage(sampleBuffer)
-        }
-    }
-    
-    /// Mark sampleBuffer as DisplayImmediately
-    ///
-    /// - Parameter sampleBuffer: CMSampleBuffer
-    private func refreshImage(_ sampleBuffer: CMSampleBuffer) {
-        if let attachments :CFArray = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true) {
-            let ptr :UnsafeRawPointer = CFArrayGetValueAtIndex(attachments, 0)
-            let dict = fromOpaque(ptr, CFMutableDictionary.self)
-            let key = toOpaque(kCMSampleAttachmentKey_DisplayImmediately)
-            let value = toOpaque(kCFBooleanTrue)
-            CFDictionarySetValue(dict, key, value)
-        }
-        else { NSLog("!!!\(#line)") }
-    }
-    
-    /// Experimental : Adjust timebase
-    ///
-    /// - Parameters:
-    ///   - startTime: CMTime
-    ///   - duration: CMTime
-    private func adjustTimebase(_ startTime :CMTime, _ duration :CMTime) {
-        // Adjust TimebaseTime if required (enqueue may hog time)
-        if let vLayer = videoLayer, let timebase = vLayer.controlTimebase {
-            let tbTime = CMTimeGetSeconds(CMTimebaseGetTime(timebase))
-            let time2 = CMTimeSubtract(startTime, CMTimeMultiplyByFloat64(duration, multiplier: Float64(0.5)))
-            let time2InSec = CMTimeGetSeconds(time2)
-            if tbTime > time2InSec {
-                if verbose {
-                    NSLog("NOTICE: ADJUST! " + String(format:"%0.6f", (time2InSec - tbTime)))
-                }
-                
-                // roll back timebase to make some delay for a half of sample duration
-                _ = CMTimebaseSetTime(timebase, time: time2)
-                _ = CMTimebaseSetRate(timebase, rate: 1.0)
-            }
-        }
-        else { NSLog("!!!\(#line)") }
+        else { preconditionFailure("videoLayer is nil") }
     }
     
     /* ================================================ */
     // MARK: - private functions (DisplayLink)
     /* ================================================ */
     
+    /// Setup DisplayLink
+    /// @discussion Under macOS 14.0 and later, CADisplayLink is used instead of CVDisplayLink.
     private func prepareDisplayLink() {
-        // Create CVDisplayLink
-        var newDisplayLink :CVDisplayLink? = nil
-        _ = CVDisplayLinkCreateWithActiveCGDisplays(&newDisplayLink)
+        printVerbose("CaptureVideoPreview.\(#function)")
+        donotEnqueue = false
         
-        if let newDisplayLink = newDisplayLink {
+        if preferCADisplayLink, #available(macOS 14.0, *) {
+            // Create CADisplayLink
+            let selector = #selector(handleCADisplayLink(_:))
+            let newCADisplayLink = self.displayLink(target: self, selector: selector)
+            caDisplayLink = newCADisplayLink
+            
+            // Register DisplayLink
+            newCADisplayLink.add(to: .main, forMode: .common)
+        } else {
+            // Create CVDisplayLink
+            var newDisplayLink :CVDisplayLink? = nil
+            _ = CVDisplayLinkCreateWithActiveCGDisplays(&newDisplayLink)
+            
+            guard let newDisplayLink = newDisplayLink else { return }
+            
             // Define OutputHandler
-            let outputHandler :CVDisplayLinkOutputHandler = {
+            let outputHandler :CVDisplayLinkOutputHandler = { [weak self]
                 (inDL :CVDisplayLink, inNowTS :UnsafePointer<CVTimeStamp>,
-                inOutTS :UnsafePointer<CVTimeStamp>, inFlags :CVOptionFlags,
-                outFlags :UnsafeMutablePointer<CVOptionFlags>
+                 inOutTS :UnsafePointer<CVTimeStamp>, inFlags :CVOptionFlags,
+                 outFlags :UnsafeMutablePointer<CVOptionFlags>
                 ) -> CVReturn in
                 
-                // Enqueue request
-                let outHostTime = inOutTS.pointee.hostTime
-                let result = self.requestSampleAt(outHostTime)
+                guard let self = self else { return kCVReturnError }
                 
-                // Return success if sample is queued now
-                return result ? kCVReturnSuccess : kCVReturnError
+                if cache.donotEnqueue {
+                    Task { @MainActor in
+                        printVerbose("NOTICE: DisplayLink is suspended. Ignore enqueue request (\(#function))")
+                    }
+                    return kCVReturnError
+                }
+                
+                let refreshInterval = videoRefreshIntervalFromTimeStamp(inNowTS.pointee)! // refresh interval in seconds
+                let lastVSync = videoTimeIntervalFromTimeStamp(inNowTS.pointee)! // last vsync (current frame)
+                let targetTimestamp = videoTimeIntervalFromTimeStamp(inOutTS.pointee)! // deadline for next frame
+                let nextVSync = lastVSync + refreshInterval // next vsync (next frame)
+                let expiredTimestamp = nextVSync + refreshInterval // next frame expired
+                
+                // Schedule enqueue on MainActor
+                Task { @MainActor in
+                    enqueue(targetTimestamp, expiredTimestamp)
+                }
+                return kCVReturnSuccess
             }
             _ = CVDisplayLinkSetOutputHandler(newDisplayLink, outputHandler)
             
@@ -821,74 +657,242 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
             
             // Set displayID
             updateDisplayLink()
+            
+            // Register observer
+            let selector = #selector(CaptureVideoPreview.updateDisplayLink)
+            let notification = NSWindow.didChangeScreenNotification
+            NotificationCenter.default.addObserver(self,
+                                                   selector: selector,
+                                                   name: notification,
+                                                   object: nil)
         }
-        
-        // Register observer
-        let selector = #selector(CaptureVideoPreview.updateDisplayLink)
-        let notification = NSWindow.didChangeScreenNotification
-        NotificationCenter.default.addObserver(self,
-                                               selector: selector,
-                                               name: notification,
-                                               object: nil)
     }
     
+    /// Enqueue latest sampleBuffer to videoLayer using DisplayLink
+    /// - Parameter displayLink: CADisplayLink
+    @available(macOS 14.0, *)
+    @objc func handleCADisplayLink(_ displayLink: CADisplayLink) {
+        // CFTimeInterval is in seconds
+        // lastVSync + refreshInterval = nextVSync
+        // lastVSync < CACurrentMediaTime() < targetTimestamp < nextVSync
+        
+        let refreshInterval = displayLink.duration // refresh interval in seconds
+        let lastVSync = displayLink.timestamp // last vsync (current frame)
+        let targetTimestamp = displayLink.targetTimestamp // deadline for next frame
+        let nextVSync = lastVSync + refreshInterval // next vsync (next frame)
+        let expiredTimestamp = nextVSync + displayLink.duration // next frame expired
+        
+        _ = enqueue(targetTimestamp, expiredTimestamp)
+    }
+    
+    /// Enqueue latest sampleBuffer to videoLayer using DisplayLink
+    /// - Parameters:
+    ///  - targetTimestamp: CFTimeInterval for next frame
+    ///  - expiredTimestamp: CFTimeInterval for next frame expired
+    ///  - Returns: True if sampleBuffer is enqueued, false if not.
+    private func enqueue(_ targetTimestamp: CFTimeInterval, _ expiredTimestamp: CFTimeInterval) -> Bool {
+        if donotEnqueue {
+            printVerbose("CaptureVideoPreview.\(#function)",
+                         "NOTICE: DisplayLink is suspended. Ignore enqueue request (\(#function))")
+            return false
+        }
+        
+        guard let vLayer = videoLayer else {
+            preconditionFailure("videoLayer is nil")
+        }
+        
+        if let sampleBuffer = newSampleBuffer {
+            let statusOK = (vLayer.status != .failed)
+            let ready = vLayer.isReadyForMoreMediaData
+            if (statusOK && ready) {
+                // Check for late arrival of the sampleBuffer
+                let currentMediaTime = CACurrentMediaTime()
+                let missedTargetTimestamp = (currentMediaTime > targetTimestamp)
+                let outdatedTargetTimestamp = (currentMediaTime > expiredTimestamp)
+                
+                if outdatedTargetTimestamp, useDoNotDisplayFlag {
+                    let sbw = UnsafeSampleBufferWrapper(sampleBuffer: sampleBuffer)
+                    sbHelper.donotDisplayImage(sbw) // set kCMSampleAttachmentKey_DoNotDisplay
+                } else if missedTargetTimestamp, useDisplayImmediatelyFlag {
+                    let sbw = UnsafeSampleBufferWrapper(sampleBuffer: sampleBuffer)
+                    sbHelper.refreshImage(sbw)      // set kCMSampleAttachmentKey_DisplayImmediately
+                }
+                
+                // Enqueue samplebuffer
+                vLayer.enqueue(sampleBuffer)
+                lastQueuedHostTime = CVGetCurrentHostTime()
+                
+                if debugLog {
+                    let startTime :CMTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                    let duration :CMTime = CMSampleBufferGetDuration(sampleBuffer)
+                    let endTime :CMTime = CMTimeAdd(startTime, duration)
+                    let startInSec :Float64 = CMTimeGetSeconds(startTime)
+                    let durationInSec :Float64 = CMTimeGetSeconds(duration)
+                    let endInSec :Float64 = CMTimeGetSeconds(endTime)
+                    
+                    let strStart = String(format:"%08.3f", startInSec)
+                    let strEnd = String(format:"%08.3f", endInSec)
+                    let strDuration = String(format:"%08.3f", durationInSec)
+                    
+                    let mediaTimeInSecStr = String(format:"%012.3f", currentMediaTime)
+                    let missedStr = (missedTargetTimestamp ? "MISS" : "OK")
+                    let outdatedStr = (outdatedTargetTimestamp ? "OUTDATED" : "OK")
+                    
+                    let targetTimestampStr = String(format: "%012.3f", targetTimestamp)
+                    
+                    printDebug("CaptureVideoPreview.\(#function)",
+                               "NOTICE:\(targetTimestampStr): enqueue start(\(strStart)) end(\(strEnd)) dur(\(strDuration)) mediaTime(\(mediaTimeInSecStr):\(missedStr):\(outdatedStr))")
+                }
+                
+                // Release enqueued CMSampleBuffer
+                newSampleBuffer = nil
+                
+                return true
+            }
+            
+            if debugLog {
+                var eStr = ""
+                if !statusOK { eStr += "StatusFailed " }
+                if !ready { eStr += "NotReady " }
+                let targetTimestampStr = String(format: "%012.3f", targetTimestamp)
+                printDebug("CaptureVideoPreview.\(#function)",
+                           "ERROR:\(targetTimestampStr): videoLayer is not ready to enqueue. \(eStr)")
+            }
+            
+            flushImage()
+        } else {
+            if debugLog {
+                let targetTimestampStr = String(format: "%012.3f", targetTimestamp)
+                printDebug("CaptureVideoPreview.\(#function)",
+                           "NOTICE:\(targetTimestampStr): No sampleBuffer to enqueue. ")
+            }
+        }
+        
+        // experimental: suspend DisplayLink if idle
+        if suspendDisplayLinkOnIdle {
+            // Suspend DisplayLink if idle
+            let idleTime = CVGetCurrentHostTime() - lastQueuedHostTime
+            let idleTimeInSec = timeIntervalFromHostTime(idleTime)
+            if idleTimeInSec > FREEWHEELING_PERIOD_IN_SECONDS {
+                let targetTimestampStr = String(format: "%012.3f", targetTimestamp)
+                let idleTimeInSecStr = String(format: "%08.3f", idleTimeInSec)
+                printVerbose("CaptureVideoPreview.\(#function)",
+                             "NOTICE:\(targetTimestampStr):\(idleTimeInSecStr): No enqueue - Consider to suspend DisplayLink.")
+                
+                _ = suspendDisplayLink()
+            }
+            else {
+                if debugLog {
+                    let targetTimestampStr = String(format: "%012.3f", targetTimestamp)
+                    let idleTimeInSecStr = String(format: "%08.3f", idleTimeInSec)
+                    printDebug("CaptureVideoPreview.\(#function)",
+                               "NOTICE:\(targetTimestampStr):\(idleTimeInSecStr): No enqueue.")
+                }
+            }
+        }
+        return false
+    }
+    
+    /// Shutdown DisplayLink and release resources.
     private func shutdownDisplayLink() {
-        // Unregister observer
-        NotificationCenter.default.removeObserver(self)
-        
-        // Stop and release CVDisplayLink
-        _ = suspendDisplayLink()
-        displayLink = nil
-        
-        //
-        lastRequestedHostTime = 0
-        
-        //
-        lastQueuedHostTime = 0
+        printVerbose("CaptureVideoPreview.\(#function)")
+        // Avoid enqueueing prior to suspend DisplayLink
+        donotEnqueue = true
         newSampleBuffer = nil
+        
+        do {
+            if preferCADisplayLink, #available(macOS 14.0, *) {
+                // Remove CADisplayLink
+                if let caDisplayLink = caDisplayLink as? CADisplayLink {
+                    caDisplayLink.invalidate()
+                }
+                self.caDisplayLink = nil
+            } else {
+                // Unregister observer
+                NotificationCenter.default.removeObserver(self)
+                
+                // Remove CVDisplayLink
+                if let displayLink = displayLink {
+                    if CVDisplayLinkIsRunning(displayLink) {
+                        _ = CVDisplayLinkStop(displayLink)
+                    }
+                }
+                self.displayLink = nil
+            }
+        }
     }
     
     /// Start displayLink with current CGDirectDisplayID.
     ///
     /// - Returns: True if displayLink is running.
+    /// @discussion Under macOS 14.0 and later, CADisplayLink is used instead of CVDisplayLink.
     private func activateDisplayLink() -> Bool {
         var result = false;
-        queueSync {
-            if displayLink == nil {
-                prepareDisplayLink()
-            }
-            
-            if let displayLink = displayLink {
-                if !CVDisplayLinkIsRunning(displayLink) {
-                    _ = CVDisplayLinkStart(displayLink)
+        do {
+            if preferCADisplayLink, #available(macOS 14.0, *) {
+                if let caDisplayLink = caDisplayLink as? CADisplayLink {
+                    if caDisplayLink.isPaused {
+                        caDisplayLink.isPaused = false
+                    }
+                    result = !caDisplayLink.isPaused
+                } else {
+                    preconditionFailure("ERROR: CADisplayLink is not valid.")
                 }
-                
-                result = CVDisplayLinkIsRunning(displayLink)
+            } else {
+                if let displayLink = displayLink {
+                    if !CVDisplayLinkIsRunning(displayLink) {
+                        _ = CVDisplayLinkStart(displayLink)
+                    }
+                    result = CVDisplayLinkIsRunning(displayLink)
+                } else {
+                    preconditionFailure("ERROR: CVDisplayLink is not valid.")
+                }
             }
         }
+        
+        // Update donotEnqueue flag
+        donotEnqueue = !result
         return result
     }
     
     /// Stop displayLink with current CGDirectDisplayID.
     ///
     /// - Returns: True if displayLink is not running.
+    /// @discussion Under macOS 14.0 and later, CADisplayLink is used instead of CVDisplayLink.
     private func suspendDisplayLink() -> Bool {
         var result = false;
-        queueSync {
-            if let displayLink = displayLink {
-                if CVDisplayLinkIsRunning(displayLink) {
-                    _ = CVDisplayLinkStop(displayLink)
+        do {
+            if preferCADisplayLink, #available(macOS 14.0, *) {
+                if let caDisplayLink = caDisplayLink as? CADisplayLink {
+                    if !caDisplayLink.isPaused {
+                        caDisplayLink.isPaused = true
+                    }
+                    result = caDisplayLink.isPaused
+                } else {
+                    preconditionFailure("ERROR: CADisplayLink is not valid.")
                 }
-                
-                result = !CVDisplayLinkIsRunning(displayLink)
+            } else  {
+                if let displayLink = displayLink {
+                    if CVDisplayLinkIsRunning(displayLink) {
+                        _ = CVDisplayLinkStop(displayLink)
+                    }
+                    result = !CVDisplayLinkIsRunning(displayLink)
+                } else {
+                    preconditionFailure("ERROR: CVDisplayLink is not valid.")
+                }
             }
+        }
+        if result {
+            donotEnqueue = true
+            newSampleBuffer = nil
         }
         return result
     }
     
     /// Update linked CGDirectDisplayID with current view's displayID.
     @objc private func updateDisplayLink() {
-        queueSync {
+        printVerbose("CaptureVideoPreview.\(#function)")
+        do {
             if let displayLink = displayLink {
                 let linkedDisplayID = CVDisplayLinkGetCurrentCGDisplay(displayLink)
                 
@@ -913,168 +917,66 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
         }
     }
     
-    /// Delayed enqueue with DisplayLink support
-    /// - Parameter sampleBuffer: CMSampleBuffer to queue
-    private func queueSampleBufferUsingDisplayLink(_ sampleBuffer :CMSampleBuffer) {
-        queueSync {
-            let startTime :CMTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-            let duration :CMTime = CMSampleBufferGetDuration(sampleBuffer)
-            let endTime :CMTime = CMTimeAdd(startTime, duration)
-            let startInSec :Float64 = CMTimeGetSeconds(startTime)
-            let durationInSec :Float64 = CMTimeGetSeconds(duration)
-            let endInSec :Float64 = CMTimeGetSeconds(endTime)
-            if debugLog {
-                let strStart = String(format:"%.3f", startInSec)
-                let strEnd = String(format:"%.3f", endInSec)
-                let strDuration = String(format:"%.3f", durationInSec)
-                NSLog("Enqueue: start(\(strStart)) end(\(strEnd)) dur(\(strDuration))")
-            }
-            
-            // Check/Activate displayLink
-            let result = activateDisplayLink()
-            if !result {
-                NSLog("ERROR: DisplayLink is not ready.")
-                return
-            }
-            
-            #if false
-            checkGAP(sampleBuffer)
-            checkDelayed(sampleBuffer)
-            #endif
-            
-            if baseHostTime == 0 {
-                // Initialize Timebase if this is first sampleBuffer
-                resetTimebase(sampleBuffer)
-            }
-            
-            // Keep as delayed sample
-            newSampleBuffer = sampleBuffer
-            if enqueueImmediately {
-                if let vLayer = videoLayer {
-                    let statusOK :Bool = (vLayer.status != .failed)
-                    let ready :Bool = vLayer.isReadyForMoreMediaData
-                    if statusOK && ready {
-                        // Enqueue samplebuffer
-                        vLayer.enqueue(sampleBuffer)
-                        lastQueuedHostTime = CVGetCurrentHostTime()
-                        
-                        // Release enqueued CMSampleBuffer
-                        newSampleBuffer = nil
-                        
-                        //
-                        prevEndTime = endTime
-                    } else if verbose {
-                        var eStr = ""
-                        if !statusOK { eStr += "StatusFailed " }
-                        if !ready { eStr += "NotReady " }
-                        NSLog("NOTICE: videoLayer is not ready to enqueue. \(eStr)")
-                    }
-                }
-            }
-            
-            #if false
-            // Experimental
-            adjustTimebase(startTime, duration)
-            #endif
-        }
-    }
-    
-    /// Request sampleBuffer for specified future HostTime
-    ///
-    /// - Parameter outHostTime: future target hostTime (beamsync/video refresh scheduled)
-    /// - Returns: False if failed to enqueue
-    private func requestSampleAt(_ outHostTime :UInt64) -> Bool {
-        var result :Bool = false
-        do {
-            lastRequestedHostTime = outHostTime
-            
-            // Check if no sampleBuffer is queued yet
-            if baseHostTime == 0 {
-                NSLog("ERROR: No video sample is queued yet.")
-                return false
-            }
-            
-            // Try delayed enqueue
-            if let sampleBuffer = newSampleBuffer, let vLayer = videoLayer {
-                let statusOK :Bool = (vLayer.status != .failed)
-                let ready :Bool = vLayer.isReadyForMoreMediaData
-                if statusOK && ready {
-                    if checkPresentationTime {
-                        // Validate sampleBuffer presentation time
-                        result = validateSample(outHostTime, sampleBuffer)
-                    } else {
-                        result = true
-                    }
-                    
-                    if result {
-                        // Enqueue samplebuffer
-                        vLayer.enqueue(sampleBuffer)
-                        lastQueuedHostTime = CVGetCurrentHostTime()
-                        
-                        // Release captured CMSampleBuffer
-                        newSampleBuffer = nil
-                    } else {
-                        NSLog("ERROR: No video sample is available for specified HostTime.")
-                    }
-                } else if verbose {
-                    var eStr = ""
-                    if !statusOK { eStr += "StatusFailed " }
-                    if !ready { eStr += "NotReady " }
-                    NSLog("NOTICE: videoLayer is not ready to enqueue. \(eStr)")
-                }
-            }
-            
-            // Stop CVDisplayLink if no update for a while
-            if !result {
-                // Check idle duration
-                let idleInUnits :UInt64 = outHostTime - lastQueuedHostTime
-                let idleInSec :Float64 = hostTimeUnitsToSec(idleInUnits)
-                if idleInSec > FREEWHEELING_PERIOD_IN_SECONDS {
-                    _ = suspendDisplayLink()
-                }
-                
-                // Release captured CMSampleBuffer
-                newSampleBuffer = nil
-            }
-        }
-        return result
-    }
-    
-    /// validate if sampleBuffer has presentation time range on next Video Refresh HostTime
-    ///
-    /// - Parameters:
-    ///   - outHostTime: future target HostTime (beamsync)
-    ///   - sampleBuffer: target samplebuffer
-    /// - Returns: True if ready to enqueue
-    private func validateSample(_ outHostTime :UInt64, _ sampleBuffer: CMSampleBuffer) -> Bool {
-        var result :Bool = false
-        do {
-            // Get target timestamp offset (beamSync)
-            let offsetInUnits :UInt64 = outHostTime - baseHostTime
-            let offsetInSec :Float64 = hostTimeUnitsToSec(offsetInUnits) + baseOffsetInSec
-            
-            // Get presentation timestamp (start and end)
-            let startTime :CMTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-            let duration :CMTime = CMSampleBufferGetDuration(sampleBuffer)
-            let endTime :CMTime = CMTimeAdd(startTime, duration)
-            let startInSec :Float64 = CMTimeGetSeconds(startTime)
-            let endInSec :Float64 = CMTimeGetSeconds(endTime)
-            
-            // Check if the beamSync is within the presentation time
-            let startBefore :Bool = startInSec <= offsetInSec
-            let endAfter :Bool = offsetInSec <= endInSec
-            result = (startBefore && endAfter)
-        }
-        return result
-    }
-    
-    /// Convert hostTime(UInt64) to second (Float64)
+    /// Convert hostTime(UInt64) to seconds(Float64)
     ///
     /// - Parameter hostTime: UInt64 value as HostTime
     /// - Returns: Float64 value in seconds
-    private func hostTimeUnitsToSec(_ hostTime :UInt64) -> Float64 {
+    nonisolated private func timeIntervalFromHostTime(_ hostTime :UInt64) -> Float64 {
         let valueInTime : CMTime = CMClockMakeHostTimeFromSystemUnits(hostTime)
         let valueInSec :Float64 = CMTimeGetSeconds(valueInTime)
         return valueInSec
+    }
+    
+    /// Convert seconds(Float64) to hostTime(UInt64)
+    ///
+    /// - Parameter seconds: Float64 value in seconds
+    /// - Returns: UInt64 value as HostTime
+    nonisolated private func hostTimeUnitsFromTimeInterval(_ seconds: Float64) -> UInt64 {
+        let valueInCMTime: CMTime = CMTimeMakeWithSeconds(seconds, preferredTimescale: 1_000_000_000)
+        let hostTimeUnits: UInt64 = CMClockConvertHostTimeToSystemUnits(valueInCMTime)
+        return hostTimeUnits
+    }
+    
+    /// Convert CVTimeStamp to hostTime(UInt64)
+    /// - Parameter timestamp: CVTimeStamp which contains hostTime
+    /// - Returns: Optional UInt64 value as HostTime if valid, nil otherwise
+    nonisolated func hostTimeFromTimeStamp(_ timestamp: CVTimeStamp) -> UInt64? {
+        // Check if hostTime is valid
+        let flags = CVTimeStampFlags(rawValue: timestamp.flags)
+        let hostTimeValid: Bool = flags.contains(.hostTimeValid)
+        if hostTimeValid {
+            return timestamp.hostTime
+        }
+        return nil
+    }
+    
+    /// Convert CVTimeStamp to seconds(Float64)
+    /// - Parameter timestamp: CVTimeStamp which contains videoTime
+    /// - Returns: Optional Float64 value in seconds if valid, nil otherwise
+    nonisolated func videoTimeIntervalFromTimeStamp(_ timestamp: CVTimeStamp) -> Float64? {
+        // Check if videoTime is valid and has a valid scale
+        let flags = CVTimeStampFlags(rawValue: timestamp.flags)
+        let videoTimeValid: Bool = flags.contains(.videoTimeValid)
+        if videoTimeValid && timestamp.videoTimeScale > 0 {
+            let valueInCMTime: CMTime = CMTimeMake(value: timestamp.videoTime,
+                                                   timescale: timestamp.videoTimeScale)
+            return CMTimeGetSeconds(valueInCMTime)
+        }
+        return nil
+    }
+    
+    /// Convert CVTimeStamp to video refresh interval(Float64)
+    /// - Parameter timestamp: CVTimeStamp which contains videoRefreshPeriod
+    /// - Returns: Optional Float64 value in seconds if valid, nil otherwise
+    nonisolated func videoRefreshIntervalFromTimeStamp(_ timestamp: CVTimeStamp) -> Float64? {
+        // Check if videoRefreshPeriod is valid
+        let flags = CVTimeStampFlags(rawValue: timestamp.flags)
+        let videoRefreshValid: Bool = flags.contains(.videoRefreshPeriodValid)
+        if videoRefreshValid && timestamp.videoTimeScale > 0 {
+            let valueInCMTime: CMTime = CMTimeMake(value: timestamp.videoRefreshPeriod,
+                                                   timescale: timestamp.videoTimeScale)
+            return CMTimeGetSeconds(valueInCMTime)
+        }
+        return nil
     }
 }

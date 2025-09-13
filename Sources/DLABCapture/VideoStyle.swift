@@ -3,13 +3,13 @@
 //  DLABCapture
 //
 //  Created by Takashi Mochizuki on 2017/09/18.
-//  Copyright © 2017-2024 MyCometG3. All rights reserved.
+//  Copyright © 2017-2025 MyCometG3. All rights reserved.
 //
 
 import Foundation
 import AVFoundation
 
-public enum VideoStyle : String {
+public enum VideoStyle : String, Sendable {
     case SD_640_480_Full    = "SD 640:480 Full"     // square pixel
     case SD_640_486_Full    = "SD 640:486 Full"     // square pixel
     case SD_768_576_Full    = "SD 768:576 Full"     // square pixel

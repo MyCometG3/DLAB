@@ -3,7 +3,7 @@
 //  DLABCore
 //
 //  Created by Takashi Mochizuki on 2017/08/26.
-//  Copyright © 2017-2024 MyCometG3. All rights reserved.
+//  Copyright © 2017-2025 MyCometG3. All rights reserved.
 //
 
 /* This software is released under the MIT License, see LICENSE.txt. */
@@ -83,6 +83,9 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
         // Validate support feature (Capture)
         if (!_deckLinkInput && supportsCapture) {
             error = _deckLink->QueryInterface(IID_IDeckLinkInput, (void **)&_deckLinkInput);
+            if (error) { // 14.2.1
+                error = _deckLink->QueryInterface(IID_IDeckLinkInput_v14_2_1, (void **)&_deckLinkInput);
+            }
             if (error) { // 11.5.1
                 error = _deckLink->QueryInterface(IID_IDeckLinkInput_v11_5_1, (void **)&_deckLinkInput);
             }
@@ -99,6 +102,9 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
         // Validate support feature (Playback)
         if (!_deckLinkOutput && supportsPlayback) {
             error = _deckLink->QueryInterface(IID_IDeckLinkOutput, (void **)&_deckLinkOutput);
+            if (error) { // 14.2.1
+                error = _deckLink->QueryInterface(IID_IDeckLinkOutput_v14_2_1, (void **)&_deckLinkOutput);
+            }
             if (error) { // 11.4
                 error = _deckLink->QueryInterface(IID_IDeckLinkOutput_v11_4, (void **)&_deckLinkOutput);
             }
@@ -226,7 +232,20 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
 
 - (void) shutdown
 {
-    // TODO stop output/input streams
+    // Stop streams during shutdown to prevent resource leaks
+    // Stop output streams if running
+    if (_deckLinkOutput) {
+        NSNumber* isRunning = [self isScheduledPlaybackRunningWithError:nil];
+        if (isRunning && [isRunning boolValue]) {
+            [self stopScheduledPlaybackWithError:nil];
+        }
+    }
+    
+    // Stop input streams if running
+    if (_deckLinkInput) {
+        // Always attempt to stop input streams (no easy way to check if running)
+        [self stopStreamsWithError:nil];
+    }
     
     // Release OutputVideoFramePool
     [self freeOutputVideoFramePool];
@@ -521,6 +540,38 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
 }
 
 /* =================================================================================== */
+// MARK: - (Private) - validation helpers
+/* =================================================================================== */
+
+- (BOOL) validateProfileAttributesInterfaceWithError:(NSError**)error
+                                        functionName:(const char*)functionName
+                                          lineNumber:(int)lineNumber
+{
+    if (!_deckLinkProfileAttributes) {
+        [self post:[NSString stringWithFormat:@"%s (%d)", functionName, lineNumber]
+            reason:@"IDeckLinkProfileAttributes interface not available."
+              code:E_FAIL
+                to:error];
+        return NO;
+    }
+    return YES;
+}
+
+- (BOOL) validateConfigurationInterfaceWithError:(NSError**)error
+                                    functionName:(const char*)functionName
+                                      lineNumber:(int)lineNumber
+{
+    if (!_deckLinkConfiguration) {
+        [self post:[NSString stringWithFormat:@"%s (%d)", functionName, lineNumber]
+            reason:@"IDeckLinkConfiguration interface not available."
+              code:E_FAIL
+                to:error];
+        return NO;
+    }
+    return YES;
+}
+
+/* =================================================================================== */
 // MARK: - (Private) - Subscription/Callback
 /* =================================================================================== */
 
@@ -532,7 +583,7 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
         // delegate can handle status changed event here
         id<DLABStatusChangeDelegate> delegate = self.statusDelegate;
         if (delegate) {
-            __weak __typeof__(self) wself = self;
+            __weak typeof(self) wself = self;
             [self delegate_async:^{
                 [delegate statusChanged:(DLABDeckLinkStatus)param1
                                ofDevice:wself]; // async
@@ -542,7 +593,7 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
         // delegate can handle prefs change event here
         id<DLABPrefsChangeDelegate> delegate = self.prefsDelegate;
         if (delegate) {
-            __weak __typeof__(self) wself = self;
+            __weak typeof(self) wself = self;
             [self delegate_async:^{
                 [delegate prefsChangedOfDevice:wself]; // async
             }];
@@ -972,6 +1023,12 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
 - (NSNumber*) boolValueForAttribute:(DLABAttribute) attributeID
                               error:(NSError**)error
 {
+    if (![self validateProfileAttributesInterfaceWithError:error
+                                              functionName:__PRETTY_FUNCTION__
+                                                lineNumber:__LINE__]) {
+        return nil;
+    }
+    
     HRESULT result = E_FAIL;
     BMDDeckLinkAttributeID attr = attributeID;
     bool newBoolValue = false;
@@ -990,6 +1047,12 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
 - (NSNumber*) intValueForAttribute:(DLABAttribute) attributeID
                              error:(NSError**)error
 {
+    if (![self validateProfileAttributesInterfaceWithError:error
+                                              functionName:__PRETTY_FUNCTION__
+                                                lineNumber:__LINE__]) {
+        return nil;
+    }
+    
     HRESULT result = E_FAIL;
     BMDDeckLinkAttributeID attr = attributeID;
     int64_t newIntValue = 0;
@@ -1008,6 +1071,12 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
 - (NSNumber*) doubleValueForAttribute:(DLABAttribute) attributeID
                                 error:(NSError**)error
 {
+    if (![self validateProfileAttributesInterfaceWithError:error
+                                              functionName:__PRETTY_FUNCTION__
+                                                lineNumber:__LINE__]) {
+        return nil;
+    }
+    
     HRESULT result = E_FAIL;
     BMDDeckLinkAttributeID attr = attributeID;
     double newDoubleValue = 0;
@@ -1026,6 +1095,12 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
 - (NSString*) stringValueForAttribute:(DLABAttribute) attributeID
                                 error:(NSError**)error
 {
+    if (![self validateProfileAttributesInterfaceWithError:error
+                                              functionName:__PRETTY_FUNCTION__
+                                                lineNumber:__LINE__]) {
+        return nil;
+    }
+    
     HRESULT result = E_FAIL;
     BMDDeckLinkAttributeID attr = attributeID;
     CFStringRef newStringValue = NULL;
@@ -1124,6 +1199,12 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
 - (BOOL) setBoolValue:(BOOL)value forConfiguration:(DLABConfiguration)
 configurationID error:(NSError**)error
 {
+    if (![self validateConfigurationInterfaceWithError:error
+                                          functionName:__PRETTY_FUNCTION__
+                                            lineNumber:__LINE__]) {
+        return NO;
+    }
+    
     HRESULT result = E_FAIL;
     BMDDeckLinkConfigurationID conf = configurationID;
     bool newBoolValue = (bool)value;
@@ -1142,6 +1223,12 @@ configurationID error:(NSError**)error
 - (BOOL) setIntValue:(NSInteger)value forConfiguration:(DLABConfiguration)
 configurationID error:(NSError**)error
 {
+    if (![self validateConfigurationInterfaceWithError:error
+                                          functionName:__PRETTY_FUNCTION__
+                                            lineNumber:__LINE__]) {
+        return NO;
+    }
+    
     HRESULT result = E_FAIL;
     BMDDeckLinkConfigurationID conf = configurationID;
     int64_t newIntValue = (int64_t)value;
@@ -1160,6 +1247,12 @@ configurationID error:(NSError**)error
 - (BOOL) setDoubleValue:(double_t)value forConfiguration:(DLABConfiguration)
 configurationID error:(NSError**)error
 {
+    if (![self validateConfigurationInterfaceWithError:error
+                                          functionName:__PRETTY_FUNCTION__
+                                            lineNumber:__LINE__]) {
+        return NO;
+    }
+    
     HRESULT result = E_FAIL;
     BMDDeckLinkConfigurationID conf = configurationID;
     double newDoubleValue = (double)value;
@@ -1178,10 +1271,19 @@ configurationID error:(NSError**)error
 - (BOOL) setStringValue:(NSString*)value forConfiguration:(DLABConfiguration)
 configurationID error:(NSError**)error
 {
+    NSParameterAssert(value != nil);
+    
+    if (![self validateConfigurationInterfaceWithError:error
+                                          functionName:__PRETTY_FUNCTION__
+                                            lineNumber:__LINE__]) {
+        return NO;
+    }
+    
     HRESULT result = E_FAIL;
     BMDDeckLinkConfigurationID conf = configurationID;
     CFStringRef newStringValue = (CFStringRef)CFBridgingRetain(value);
     result = _deckLinkConfiguration->SetString(conf, newStringValue);
+    CFRelease(newStringValue);
     if (!result) {
         return YES;
     } else {
@@ -1195,6 +1297,12 @@ configurationID error:(NSError**)error
 
 - (BOOL) writeConfigurationToPreferencesWithError:(NSError**)error
 {
+    if (![self validateConfigurationInterfaceWithError:error
+                                          functionName:__PRETTY_FUNCTION__
+                                            lineNumber:__LINE__]) {
+        return NO;
+    }
+    
     HRESULT result = E_FAIL;
     result = _deckLinkConfiguration->WriteConfigurationToPreferences();
     if (!result) {
