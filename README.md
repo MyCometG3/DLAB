@@ -24,11 +24,11 @@ URL: https://github.com/MyCometG3/DLAB.git
 - Ref: "Documentation/Bundle Resources/Entitlements/Hardened Runtime/Disable Library Validation Entitlement" from Apple Developer Documentation.
 
 #### Development environment
-- macOS 15.0 Sequoia
-- Xcode 16.0
-- Swift 6.0
+- macOS 15.6.1 Sequoia
+- Xcode 16.4
+- Swift 6.1.2
 
 #### License
 - The MIT License
 
-Copyright © 2022-2024年 MyCometG3. All rights reserved.
+Copyright © 2022-2025年 MyCometG3. All rights reserved.
