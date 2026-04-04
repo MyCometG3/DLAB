@@ -209,7 +209,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     /// Duration in sec of recording
     public var duration :Float64 {
         get {
-            if let writer = writer {
+            if appendGateOpen, let writer = writer {
                 return writer.cachedDuration
             } else {
                 return lastDuration
