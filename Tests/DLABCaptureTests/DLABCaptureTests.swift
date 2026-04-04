@@ -27,4 +27,78 @@ final class DLABCaptureTests: XCTestCase {
         let manager = CaptureManager()
         XCTAssertNotNil(manager.findFirstDevice())
     }
+
+    func testCaptureManagerPrewarmRequiresRunningCapture() async throws {
+        let manager = CaptureManager()
+
+        XCTAssertFalse(manager.recording)
+        XCTAssertEqual(manager.duration, 0)
+
+        let result = await manager.prewarmRecordingPathAsync()
+
+        XCTAssertFalse(result)
+        XCTAssertFalse(manager.recording)
+        XCTAssertEqual(manager.duration, 0)
+    }
+
+    func testCaptureManagerTestingWriterConfigReflectsRecordingOptions() throws {
+        let manager = CaptureManager()
+        let movieURL = FileManager.default.temporaryDirectory.appendingPathComponent("capture-manager-config.mov")
+
+        manager.prefix = "Test-"
+        manager.sampleTimescale = 0
+        manager.encodeAudio = true
+        manager.encodeAudioBitrate = 192_000
+        manager.encodeVideo = false
+        manager.encodeVideoBitrate = 4_000_000
+        manager.encodeProRes422 = false
+        manager.videoStyle = .SD_720_480_16_9
+        manager.offset = NSPoint(x: 4, y: -2)
+
+        let config = manager.testingWriterConfig(movieURL: movieURL, prefix: manager.prefix)
+
+        XCTAssertEqual(config.movieURL, movieURL)
+        XCTAssertEqual(config.prefix, "Test-")
+        XCTAssertGreaterThan(config.sampleTimescale, 0)
+        XCTAssertTrue(config.encodeAudio)
+        XCTAssertEqual(config.encodeAudioBitrate, 192_000)
+        XCTAssertFalse(config.encodeVideo)
+        XCTAssertEqual(config.encodeVideoBitrate, 4_000_000)
+        XCTAssertFalse(config.encodeProRes422)
+        XCTAssertEqual(config.videoStyle.encodedSize(), NSSize(width: 720, height: 480))
+        XCTAssertEqual(config.clapHOffset, 4)
+        XCTAssertEqual(config.clapVOffset, -2)
+        XCTAssertFalse(config.useTimecode)
+        XCTAssertNil(config.sourceVideoFormatDescription)
+        XCTAssertNil(config.sourceAudioFormatDescription)
+    }
+
+    func testCaptureWriterOpenSessionReportsInitializationError() async throws {
+        let writer = CaptureWriter()
+        var config = CaptureWriter.CaptureWriterConfig()
+        config.useAudio = false
+        config.useVideo = false
+        config.useTimecode = false
+        config.movieURL = FileManager.default.temporaryDirectory.appendingPathComponent("capture-writer-error.mov")
+
+        await writer.setConfig(config)
+        await writer.testingSetAssetWriterFactory { _, _ in
+            throw NSError(domain: "DLABCaptureTests", code: 42, userInfo: [
+                NSLocalizedDescriptionKey: "Injected writer init failure"
+            ])
+        }
+        await writer.openSession()
+
+        let isRecording = await writer.isRecording
+        XCTAssertFalse(isRecording)
+
+        guard let internalError = await writer.internalError else {
+            return XCTFail("Expected openSession() to store an initialization error")
+        }
+        guard case let CaptureWriterError.assetWriterIsNotAvailable(reason) = internalError else {
+            return XCTFail("Expected assetWriterIsNotAvailable error, got \(internalError)")
+        }
+        XCTAssertTrue(reason.contains("AVAssetWriter initialization failed"))
+        XCTAssertTrue(reason.contains("Injected writer init failure"))
+    }
 }
