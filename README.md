@@ -2,7 +2,7 @@
 
 A wrapper swift package for Blackmagic DeckLinkAPI.framework.
 
-### DLAB is the SPM version of DLAB frameworks. No API change.
+### DLAB is the SPM version of DLAB frameworks. No API difference.
 
 Package DLAB contains two products. See DLABSandbox - sample SwiftUI application.
 
@@ -24,9 +24,9 @@ URL: https://github.com/MyCometG3/DLAB.git
 - Ref: "Documentation/Bundle Resources/Entitlements/Hardened Runtime/Disable Library Validation Entitlement" from Apple Developer Documentation.
 
 #### Development environment
-- macOS 15.6.1 Sequoia
-- Xcode 16.4
-- Swift 6.1.2
+- macOS 26.4 Tahoe
+- Xcode 26.4
+- Swift 6.3
 
 #### License
 - The MIT License
