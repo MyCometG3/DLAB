@@ -19,7 +19,7 @@ DLABAncillaryPacket::DLABAncillaryPacket(void)
 
 HRESULT DLABAncillaryPacket::Update(uint8_t did, uint8_t sdid, uint32_t line, uint8_t dataStreamIndex, NSData* data)
 {
-    return Update(did, sdid, line, dataStreamIndex, 0, data);
+    return Update(did, sdid, line, dataStreamIndex, bmdAncillaryDataSpaceVANC, data);
 }
 
 HRESULT DLABAncillaryPacket::Update(uint8_t did, uint8_t sdid, uint32_t line, uint8_t dataStreamIndex, BMDAncillaryDataSpace dataSpace, NSData* data)
