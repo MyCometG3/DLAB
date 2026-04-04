@@ -95,17 +95,17 @@ HRESULT DLABAncillaryPacket::QueryInterface(REFIID iid, LPVOID *ppv)
     *ppv = NULL;
     CFUUIDBytes iunknown = CFUUIDGetUUIDBytes(IUnknownUUID);
     if (memcmp(&iid, &iunknown, sizeof(REFIID)) == 0) {
-        *ppv = this;
+        *ppv = static_cast<IDeckLinkAncillaryPacket*>(this);
         AddRef();
         return S_OK;
     }
     if (memcmp(&iid, &IID_IDeckLinkAncillaryPacket, sizeof(REFIID)) == 0) {
-        *ppv = (IDeckLinkAncillaryPacket *)this;
+        *ppv = static_cast<IDeckLinkAncillaryPacket*>(this);
         AddRef();
         return S_OK;
     }
     if (memcmp(&iid, &IID_IDeckLinkAncillaryPacket_v15_2, sizeof(REFIID)) == 0) {
-        *ppv = (IDeckLinkAncillaryPacket *)this;
+        *ppv = static_cast<IDeckLinkAncillaryPacket_v15_2*>(this);
         AddRef();
         return S_OK;
     }

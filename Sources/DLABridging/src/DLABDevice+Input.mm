@@ -825,9 +825,8 @@ static DLABTimecodeSetting* createTimecodeSetting(IDeckLinkVideoInputFrame* vide
                             uint32_t size = 0;
                             packet->GetBytes(format, &ptr, &size);
                             if (ptr && size) {
-                                data = [NSData dataWithBytesNoCopy:(void*)ptr
-                                                            length:(NSUInteger)size
-                                                      freeWhenDone:NO];
+                                data = [NSData dataWithBytes:ptr
+                                                      length:(NSUInteger)size];
                             }
                             if (data) {
                                 uint8_t did = packet->GetDID();
@@ -892,9 +891,8 @@ static DLABTimecodeSetting* createTimecodeSetting(IDeckLinkVideoInputFrame* vide
                             uint32_t size = 0;
                             packet->GetBytes(format, &ptr, &size);
                             if (ptr && size) {
-                                data = [NSData dataWithBytesNoCopy:(void*)ptr
-                                                            length:(NSUInteger)size
-                                                      freeWhenDone:NO];
+                                data = [NSData dataWithBytes:ptr
+                                                      length:(NSUInteger)size];
                             }
                             if (data) {
                                 uint8_t did = packet->GetDID();

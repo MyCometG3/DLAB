@@ -17,10 +17,10 @@
 /*
  * Internal use only
  * This is C++ subclass from
- * IDeckLinkAncillaryPacket
+ * IDeckLinkAncillaryPacket / IDeckLinkAncillaryPacket_v15_2
  */
 
-class DLABAncillaryPacket : public IDeckLinkAncillaryPacket
+class DLABAncillaryPacket : public IDeckLinkAncillaryPacket, public IDeckLinkAncillaryPacket_v15_2
 {
 public:
     DLABAncillaryPacket(void);
