@@ -9,7 +9,7 @@
 /* This software is released under the MIT License, see LICENSE.txt. */
 
 #import <Foundation/Foundation.h>
-#import <DLABridging/DLABDevice.h>
+#import <DLABDevice.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
