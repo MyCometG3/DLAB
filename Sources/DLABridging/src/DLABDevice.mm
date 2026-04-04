@@ -3,7 +3,7 @@
 //  DLABCore
 //
 //  Created by Takashi Mochizuki on 2017/08/26.
-//  Copyright © 2017-2025 MyCometG3. All rights reserved.
+//  Copyright © 2017-2026 MyCometG3. All rights reserved.
 //
 
 /* This software is released under the MIT License, see LICENSE.txt. */
@@ -403,6 +403,8 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
 @synthesize outputVANCHandler = _outputVANCHandler;
 @synthesize inputVANCPacketHandler = _inputVANCPacketHandler;
 @synthesize outputVANCPacketHandler = _outputVANCPacketHandler;
+@synthesize inputAncillaryPacketHandler = _inputAncillaryPacketHandler; // (SDK 15.3 or later)
+@synthesize outputAncillaryPacketHandler = _outputAncillaryPacketHandler; // (SDK 15.3 or later)
 
 @synthesize inputFrameMetadataHandler = _inputFrameMetadataHandler;
 @synthesize outputFrameMetadataHandler = _outputFrameMetadataHandler;

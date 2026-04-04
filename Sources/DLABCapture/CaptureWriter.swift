@@ -3,12 +3,24 @@
 //  DLABCapture
 //
 //  Created by Takashi Mochizuki on 2017/09/16.
-//  Copyright © 2017-2025 MyCometG3. All rights reserved.
+//  Copyright © 2017-2026 MyCometG3. All rights reserved.
 //
 
 import Foundation
 import AVFoundation
 import VideoToolbox
+import os.lock
+
+final class UnfairLockBox: @unchecked Sendable {
+    private var rawLock = os_unfair_lock_s()
+    
+    @inline(__always)
+    func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        os_unfair_lock_lock(&rawLock)
+        defer { os_unfair_lock_unlock(&rawLock) }
+        return try body()
+    }
+}
 
 enum CaptureWriterError: Swift.Error, LocalizedError {
     case unsupportedMediaType(String)
@@ -50,16 +62,21 @@ enum CaptureWriterError: Swift.Error, LocalizedError {
 
 /// Thread safe backing store - works with deinit and nonisolated func.
 fileprivate final class CaptureWriterCache: @unchecked Sendable {
-    private let lock = NSLock()
+    private let lock = UnfairLockBox()
     private func withLock<T>(_ block: () -> T) -> T {
-        lock.lock(); defer { lock.unlock() }
-        return block()
+        lock.withLock(block)
     }
     
     private var isRecordingValue: Bool = false
     var isRecording: Bool {
         get { withLock { isRecordingValue } }
         set { withLock { isRecordingValue = newValue } }
+    }
+    
+    private var durationValue: Float64 = 0.0
+    var duration: Float64 {
+        get { withLock { durationValue } }
+        set { withLock { durationValue = newValue } }
     }
     
     private var avAssetWriterValue: AVAssetWriter? = nil
@@ -96,7 +113,11 @@ actor CaptureWriter: NSObject {
         }
     }
     /// Recording duration in sec.
-    public private(set) var duration : Float64 = 0.0
+    public private(set) var duration : Float64 = 0.0 {
+        didSet {
+            cache.duration = duration
+        }
+    }
     /// CMTime for start time.
     public private(set) var startTime : CMTime = CMTime.zero
     /// CMTime for end time.
@@ -164,6 +185,8 @@ actor CaptureWriter: NSObject {
     public var clapHOffset : Int = 0
     /// Set preferred clean-aperture vertical offset. 0 stands center(default).
     public var clapVOffset : Int = 0
+    /// Enable startup phase timing logs for diagnostics.
+    public var traceStartupTiming: Bool = false
     
     /* ============================================ */
     // MARK: - private variable
@@ -196,9 +219,18 @@ actor CaptureWriter: NSObject {
     
     /// The determined output type for audio channel layout, used for remapping.
     private var audioChannelLayoutOutputType: AudioChannelLayoutOutputType = .descriptions8Ch
+    /// Timestamp used to measure first append latency from openSession start.
+    private var openSessionStartedAt: CFAbsoluteTime = 0
+    /// Guard to emit first video append timing only once per recording session.
+    private var loggedFirstVideoAppend: Bool = false
     
     /// CaptureWriter cache w/ nonisolated func support
     nonisolated private let cache = CaptureWriterCache()
+    
+    /// Nonisolated, lock-protected snapshot of recording duration.
+    nonisolated var cachedDuration: Float64 {
+        cache.duration
+    }
     
     /* ============================================ */
     // MARK: - public init/deinit
@@ -242,6 +274,9 @@ actor CaptureWriter: NSObject {
     /// Start writing session
     /// - Note: If any error occurs, it will be stored in `internalError`.
     public func openSession() async {
+        openSessionStartedAt = CFAbsoluteTimeGetCurrent()
+        loggedFirstVideoAppend = false
+        
         if isRecording {
             await closeSession()
         }
@@ -339,24 +374,40 @@ actor CaptureWriter: NSObject {
     }
     
     private func startRecording(_ fileURL: URL) throws {
+        let startAt = CFAbsoluteTimeGetCurrent()
+        
         // reset TS variables and duration
         initializeTimeStamp()
         
         // Create AVAssetWriter for QuickTime Movie
-        avAssetWriter = try? AVAssetWriter.init(outputURL: fileURL, fileType: AVFileType.mov)
+        let createWriterStart = CFAbsoluteTimeGetCurrent()
+        do {
+            avAssetWriter = try AVAssetWriter(outputURL: fileURL, fileType: AVFileType.mov)
+        } catch {
+            traceStartup("create-writer \(elapsedMS(from: createWriterStart))ms")
+            let reason = "AVAssetWriter initialization failed: \(error.localizedDescription)"
+            throw CaptureWriterError.assetWriterIsNotAvailable(reason)
+        }
+        traceStartup("create-writer \(elapsedMS(from: createWriterStart))ms")
         
         if let avAssetWriter = avAssetWriter {
             // Apply movieTimeScale
             avAssetWriter.movieTimeScale = sampleTimescale
             
             // Prepare AVAssetWriterInput(s)
+            let prepareInputStart = CFAbsoluteTimeGetCurrent()
             try prepareInputMedia()
+            traceStartup("prepare-input-media \(elapsedMS(from: prepareInputStart))ms")
             
             // Register AVAssetWriterInput(s)
+            let registerInputStart = CFAbsoluteTimeGetCurrent()
             try registerInputMedia()
+            traceStartup("register-input-media \(elapsedMS(from: registerInputStart))ms")
             
             // Start writing session
+            let startWritingStart = CFAbsoluteTimeGetCurrent()
             let valid = avAssetWriter.startWriting()
+            traceStartup("start-writing \(elapsedMS(from: startWritingStart))ms")
             if !valid {
                 if let error = avAssetWriter.error {
                     let reason = error.localizedDescription
@@ -367,6 +418,7 @@ actor CaptureWriter: NSObject {
                     throw CaptureWriterError.unexpectedErrorWhileOpeningSession(reason)
                 }
             }
+            traceStartup("open-session-total \(elapsedMS(from: startAt))ms")
         } else {
             let reason = "AVAssetWriter is not available."
             throw CaptureWriterError.assetWriterIsNotAvailable(reason)
@@ -419,6 +471,8 @@ actor CaptureWriter: NSObject {
         self.avAssetWriterInputVideo = nil
         self.avAssetWriterInputAudio = nil
         self.avAssetWriter = nil
+        self.openSessionStartedAt = 0
+        self.loggedFirstVideoAppend = false
     }
     
     /* ============================================ */
@@ -533,6 +587,9 @@ actor CaptureWriter: NSObject {
                         let reason = "ERROR: Could not write video sample buffer.(\(statusStr))"
                         throw CaptureWriterError.videoSampleBufferAppendFailed(reason)
                     }
+                } else if traceStartupTiming, !loggedFirstVideoAppend, openSessionStartedAt > 0 {
+                    loggedFirstVideoAppend = true
+                    traceStartup("first-video-append \(elapsedMS(from: openSessionStartedAt))ms")
                 }
             } else {
                 let reason = "ERROR: AVAssetWriterInputVideo is not ready to append."
@@ -734,7 +791,14 @@ actor CaptureWriter: NSObject {
             compressionProperties[AVVideoAverageBitRateKey] = encodeVideoBitrate
         }
         
-        let codecString = videoOutputSettings[AVVideoCodecKey] as! String
+        let codecString: String
+        if let codecType = videoOutputSettings[AVVideoCodecKey] as? AVVideoCodecType {
+            codecString = codecType.rawValue
+        } else if let codec = videoOutputSettings[AVVideoCodecKey] as? String {
+            codecString = codec
+        } else {
+            codecString = AVVideoCodecType.h264.rawValue
+        }
         do {
             if codecString == "avc1" {
                 compressionProperties[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel
@@ -958,6 +1022,15 @@ actor CaptureWriter: NSObject {
         return (min: minRate, max: maxRate)
     }
     
+    private func elapsedMS(from start: CFAbsoluteTime) -> Int {
+        Int((CFAbsoluteTimeGetCurrent() - start) * 1000.0)
+    }
+    
+    private func traceStartup(_ message: String) {
+        guard traceStartupTiming else { return }
+        print("TRACE:CaptureWriter.openSession - \(message)")
+    }
+    
     private func descriptionForStatus(_ status :AVAssetWriter.Status) -> String {
         // In case of faulty status
         let statusArray : [AVAssetWriter.Status : String] = [
@@ -1018,6 +1091,7 @@ extension CaptureWriter {
         public var videoStyle: VideoStyle = .SD_720_486_16_9
         public var clapHOffset: Int = 0
         public var clapVOffset: Int = 0
+        public var traceStartupTiming: Bool = false
         
         public init() {}
     }
@@ -1057,6 +1131,7 @@ extension CaptureWriter {
         config.videoStyle = self.videoStyle
         config.clapHOffset = self.clapHOffset
         config.clapVOffset = self.clapVOffset
+        config.traceStartupTiming = self.traceStartupTiming
         
         return config
     }
@@ -1090,5 +1165,6 @@ extension CaptureWriter {
         self.videoStyle = config.videoStyle
         self.clapHOffset = config.clapHOffset
         self.clapVOffset = config.clapVOffset
+        self.traceStartupTiming = config.traceStartupTiming
     }
 }

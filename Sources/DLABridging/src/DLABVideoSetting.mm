@@ -3,7 +3,7 @@
 //  DLABCore
 //
 //  Created by Takashi Mochizuki on 2017/08/26.
-//  Copyright © 2017-2025 MyCometG3. All rights reserved.
+//  Copyright © 2017-2026 MyCometG3. All rights reserved.
 //
 
 /* This software is released under the MIT License, see LICENSE.txt. */
@@ -343,7 +343,7 @@ NS_INLINE BOOL checkPixelFormat(BMDPixelFormat dlPixelFormat, OSType cvPixelForm
 // public hash - NSObject
 - (NSUInteger) hash
 {
-    NSUInteger value = (NSUInteger)(_widthW^_heightW) ^ (NSUInteger)(_displayMode^_pixelFormatW);
+    NSUInteger value = ((NSUInteger)_widthW ^ (NSUInteger)_heightW) ^ ((NSUInteger)_displayMode ^ (NSUInteger)_pixelFormatW);
     return value;
 }
 

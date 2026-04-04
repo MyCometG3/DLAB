@@ -31,4 +31,4 @@ URL: https://github.com/MyCometG3/DLAB.git
 #### License
 - The MIT License
 
-Copyright © 2022-2025年 MyCometG3. All rights reserved.
+Copyright © 2022-2026年 MyCometG3. All rights reserved.

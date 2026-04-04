@@ -3,7 +3,7 @@
 //  DLABCore
 //
 //  Created by Takashi Mochizuki on 2017/08/26.
-//  Copyright © 2017-2025 MyCometG3. All rights reserved.
+//  Copyright © 2017-2026 MyCometG3. All rights reserved.
 //
 
 /* This software is released under the MIT License, see LICENSE.txt. */
@@ -253,10 +253,10 @@ NS_ASSUME_NONNULL_BEGIN
  
  - input : This block is called prior to inputVideoSample delegate call is performed
  
- If you defined multiple lineNumfer as interrest, sequence of callback will be performed.
+ If you define multiple line numbers of interest, callbacks are performed in sequence.
  
  Buffer length is available from videoSetting.rowBytes.
- @param timingInfo TimingInfo of Video Input Frame
+ @param timingInfo TimingInfo of current Video Frame
  @param lineNumber lineNumber of VANC buffer.
  @param buffer VANC buffer of specified lineNumber.
  @return Return FALSE if further call is not required.
@@ -264,7 +264,7 @@ NS_ASSUME_NONNULL_BEGIN
 typedef BOOL (^VANCHandler) (CMSampleTimingInfo timingInfo, uint32_t lineNumber, void* buffer);
 
 /**
- Experimetal VANC Packet support : VANC Capture callback block
+ Experimental VANC Packet support : VANC Capture callback block
  
  This block is called in sync on delegate queue. You should process immediately.
  Sequence of callback will be triggered until you returned FALSE (when you finish all of VANC packets).
@@ -287,6 +287,31 @@ typedef BOOL (^InputVANCPacketHandler) (CMSampleTimingInfo timingInfo,
                                         NSData* data);
 
 /**
+ Experimental ancillary packet support : capture callback block (SDK 15.3 or later)
+ 
+ This block is called in sync on delegate queue. You should process immediately.
+ Sequence of callback will be triggered until you returned FALSE (when you finish all ancillary packets).
+ 
+ - input : This block is called prior to inputVideoSample delegate call is performed
+ 
+ @param timingInfo TimingInfo of Video Input Frame
+ @param did Data ID (DID) for ancillary packet.
+ @param sdid Secondary Data ID (SDID) for ancillary packet.
+ @param lineNumber lineNumber of ancillary buffer.
+ @param dataStreamIndex the data stream index for ancillary packet.
+ @param dataSpace the location of ancillary packet.
+ @param data Ancillary packet data encoded in bmdAncillaryPacketFormatUInt8 format.
+ @return Return FALSE if further call is not required.
+ */
+typedef BOOL (^InputAncillaryPacketHandler) (CMSampleTimingInfo timingInfo,
+                                             uint8_t did,
+                                             uint8_t sdid,
+                                             uint32_t lineNumber,
+                                             uint8_t dataStreamIndex,
+                                             DLABAncillaryDataSpace dataSpace,
+                                             NSData* data);
+
+/**
  Experimental VANC Packet support : VANC Playback callback block
  
  This block is called in sync on delegate queue. You should process immediately.
@@ -294,18 +319,41 @@ typedef BOOL (^InputVANCPacketHandler) (CMSampleTimingInfo timingInfo,
  
  - output : This block is called prior to outputVideoFrame is scheduled
  
- @param timingInfo TimingInfo of Video Input Frame
+ @param timingInfo TimingInfo of Output Video Frame
  @param did Data ID (DID) for ancillary packet.
  @param sdid Secondary Data ID (SDID) for ancillary packet.
  @param lineNumber lineNumber of VANC buffer.
  @param dataStreamIndex the data stream index for ancillary packet.
- @return data VANC Packet data encoded in bmdAncillaryPacketFormatUInt8 format. Return nil if futher call is not required.
+ @return data VANC Packet data encoded in bmdAncillaryPacketFormatUInt8 format. Return nil if further calls are not required.
  */
 typedef NSData* _Nullable (^OutputVANCPacketHandler) (CMSampleTimingInfo timingInfo,
                                                       uint8_t* did,
                                                       uint8_t* sdid,
                                                       uint32_t* lineNumber,
                                                       uint8_t* dataStreamIndex);
+
+/**
+ Experimental ancillary packet support : playback callback block (SDK 15.3 or later)
+ 
+ This block is called in sync on delegate queue. You should process immediately.
+ Sequence of callback will be triggered until you returned nil (when you finish all ancillary packets).
+ 
+ - output : This block is called prior to outputVideoFrame is scheduled
+ 
+ @param timingInfo TimingInfo of Output Video Frame
+ @param did Data ID (DID) for ancillary packet.
+ @param sdid Secondary Data ID (SDID) for ancillary packet.
+ @param lineNumber lineNumber of ancillary buffer.
+ @param dataStreamIndex the data stream index for ancillary packet.
+ @param dataSpace the location of ancillary packet.
+ @return data Ancillary packet data encoded in bmdAncillaryPacketFormatUInt8 format. Return nil if further calls are not required.
+ */
+typedef NSData* _Nullable (^OutputAncillaryPacketHandler) (CMSampleTimingInfo timingInfo,
+                                                           uint8_t* did,
+                                                           uint8_t* sdid,
+                                                           uint32_t* lineNumber,
+                                                           uint8_t* dataStreamIndex,
+                                                           DLABAncillaryDataSpace* dataSpace);
 NS_ASSUME_NONNULL_END
 
 /* =================================================================================== */
@@ -574,6 +622,16 @@ NS_ASSUME_NONNULL_BEGIN
  Experimental VANC Packet Output support: Caller should populate VANC Packet callback block.
  */
 @property (nonatomic, copy, nullable) OutputVANCPacketHandler outputVANCPacketHandler;
+
+/**
+ Ancillary packet capture support : Caller should populate ancillary packet callback block. (SDK 15.3 or later)
+ */
+@property (nonatomic, copy, nullable) InputAncillaryPacketHandler inputAncillaryPacketHandler;
+
+/**
+ Ancillary packet output support : Caller should populate ancillary packet callback block. (SDK 15.3 or later)
+ */
+@property (nonatomic, copy, nullable) OutputAncillaryPacketHandler outputAncillaryPacketHandler;
 
 /* =================================================================================== */
 // MARK: (Public) - HDR Metadata support (experimental)

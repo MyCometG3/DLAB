@@ -3,7 +3,7 @@
 //  DLABCapture
 //
 //  Created by Takashi Mochizuki on 2025/07/06.
-//  Copyright © 2025 MyCometG3. All rights reserved.
+//  Copyright © 2026 MyCometG3. All rights reserved.
 //
 
 import Cocoa
@@ -231,6 +231,14 @@ internal final class VideoSampleBufferHelper: @unchecked Sendable {
     public func updateSampleRect(_ sbwIn :UnsafeSampleBufferWrapper) -> Bool {
         let sbIn = sbwIn.sampleBuffer
         return updateSampleRect(sbIn)
+    }
+    
+    /// Reset cached sampleRect properties.
+    public func resetSampleRect() {
+        sampleAspectRatio = nil
+        sampleEncodedSize = nil
+        sampleCleanSize = nil
+        sampleProductionSize = nil
     }
     
     /// Update sampleRect properties from sampleBuffer.

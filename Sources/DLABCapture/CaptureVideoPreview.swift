@@ -3,7 +3,7 @@
 //  DLABCapture
 //
 //  Created by Takashi Mochizuki on 2017/10/31.
-//  Copyright © 2017-2025 MyCometG3. All rights reserved.
+//  Copyright © 2017-2026 MyCometG3. All rights reserved.
 //
 
 import Cocoa
@@ -12,10 +12,9 @@ import CoreVideo
 
 /// Thread safe backing store - works with deinit and nonisolated func.
 fileprivate final class CaptureVideoPreviewCache: @unchecked Sendable {
-    private let lock = NSLock()
+    private let lock = UnfairLockBox()
     private func withLock<T>(_ block: () -> T) -> T {
-        lock.lock(); defer { lock.unlock() }
-        return block()
+        lock.withLock(block)
     }
     
     private var preparedValue: Bool = false
@@ -226,7 +225,12 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
         if useDisplayLink, prepared {
             _ = activateDisplayLink()
         }
-        layoutSublayersCore(of: layer!)
+        guard let baseLayer = layer else {
+            printVerbose("CaptureVideoPreview.\(#function)",
+                         "ERROR: baseLayer is not available.")
+            return
+        }
+        layoutSublayersCore(of: baseLayer)
     }
     
     /* ================================================ */
@@ -253,10 +257,14 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
         }
         do {
             guard let baseLayer = layer else {
-                preconditionFailure("baseLayer is not available.")
+                printVerbose("CaptureVideoPreview.\(#function)",
+                             "ERROR: baseLayer is not available.")
+                return
             }
             guard let videoLayer = videoLayer else {
-                preconditionFailure("videoLayer is not available.")
+                printVerbose("CaptureVideoPreview.\(#function)",
+                             "ERROR: videoLayer is not available.")
+                return
             }
             
             // Initialize Timebase
@@ -285,10 +293,6 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
             return
         }
         do {
-            guard let videoLayer = videoLayer else {
-                preconditionFailure("videoLayer is not available.")
-            }
-            
             prepared = false
             donotEnqueue = !prepared
             
@@ -297,18 +301,24 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
             }
             
             // Remove CMSampleBufferDisplayLayer from SubLayer
-            if videoLayer.superlayer != nil {
-                videoLayer.removeFromSuperlayer()
+            if let videoLayer = videoLayer {
+                if videoLayer.superlayer != nil {
+                    videoLayer.removeFromSuperlayer()
+                }
+                videoLayer.flushAndRemoveImage()
+            } else {
+                printVerbose("CaptureVideoPreview.\(#function)",
+                             "ERROR: videoLayer is not available.")
             }
             
             // Initialize Timebase
             resetTimebase(nil)
-            flushImage()
             
             //
             lastQueuedHostTime = 0
             
             //
+            sbHelper.resetSampleRect()
             sampleAspectRatio = nil
             sampleEncodedSize = nil
             sampleCleanSize = nil
@@ -345,7 +355,9 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
         let sbwIn = UnsafeSampleBufferWrapper(sampleBuffer: sb)
         let sbwOut = await sbHelper.deeperCopyVideoSampleBufferAsync(sbwIn: sbwIn)
         guard let sampleBuffer = sbwOut?.sampleBuffer else {
-            preconditionFailure("Failed to duplicate CMSampleBuffer")
+            printVerbose("CaptureVideoPreview.\(#function)",
+                         "ERROR: Failed to duplicate CMSampleBuffer")
+            return
         }
         
         // Parse ImageBuffer properties of CMSampleBuffer
@@ -358,6 +370,7 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
                          "INFO: Update video sample property.")
             
             // Ensure latest SampleRect/AspectRatio applied
+            layer?.setNeedsLayout()
             needsDisplay = true
         }
         
@@ -389,7 +402,9 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
             // Instant queueing
             do {
                 guard let vLayer = videoLayer else {
-                    preconditionFailure("videoLayer is nil")
+                    printVerbose("CaptureVideoPreview.\(#function)",
+                                 "ERROR: videoLayer is nil")
+                    return
                 }
                 
                 let statusOK :Bool = (vLayer.status != .failed)
@@ -594,7 +609,10 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
         if let vLayer = videoLayer {
             vLayer.flushAndRemoveImage()
         }
-        else { preconditionFailure("videoLayer is nil") }
+        else {
+            printVerbose("CaptureVideoPreview.\(#function)",
+                         "ERROR: videoLayer is nil")
+        }
     }
     
     /* ================================================ */
@@ -698,7 +716,9 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
         }
         
         guard let vLayer = videoLayer else {
-            preconditionFailure("videoLayer is nil")
+            printVerbose("CaptureVideoPreview.\(#function)",
+                         "ERROR: videoLayer is nil")
+            return false
         }
         
         if let sampleBuffer = newSampleBuffer {
@@ -836,7 +856,8 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
                     }
                     result = !caDisplayLink.isPaused
                 } else {
-                    preconditionFailure("ERROR: CADisplayLink is not valid.")
+                    printVerbose("CaptureVideoPreview.\(#function)",
+                                 "ERROR: CADisplayLink is not valid.")
                 }
             } else {
                 if let displayLink = displayLink {
@@ -845,7 +866,8 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
                     }
                     result = CVDisplayLinkIsRunning(displayLink)
                 } else {
-                    preconditionFailure("ERROR: CVDisplayLink is not valid.")
+                    printVerbose("CaptureVideoPreview.\(#function)",
+                                 "ERROR: CVDisplayLink is not valid.")
                 }
             }
         }
@@ -869,7 +891,8 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
                     }
                     result = caDisplayLink.isPaused
                 } else {
-                    preconditionFailure("ERROR: CADisplayLink is not valid.")
+                    printVerbose("CaptureVideoPreview.\(#function)",
+                                 "ERROR: CADisplayLink is not valid.")
                 }
             } else  {
                 if let displayLink = displayLink {
@@ -878,7 +901,8 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
                     }
                     result = !CVDisplayLinkIsRunning(displayLink)
                 } else {
-                    preconditionFailure("ERROR: CVDisplayLink is not valid.")
+                    printVerbose("CaptureVideoPreview.\(#function)",
+                                 "ERROR: CVDisplayLink is not valid.")
                 }
             }
         }
