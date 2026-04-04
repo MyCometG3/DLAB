@@ -20,7 +20,12 @@ let package = Package(
         .target(name: "DLABCapture", dependencies: ["DLABCore"]),
         .testTarget(name: "DLABCaptureTests", dependencies: ["DLABCapture"]),
         .target(name: "DLABCore", dependencies: ["DLABridging"]),
-        .target(name: "DLABridging", dependencies: ["DLABridgingCpp"], cxxSettings: headerPath),
+        .target(
+            name: "DLABridging",
+            dependencies: ["DLABridgingCpp"],
+            cxxSettings: headerPath,
+            linkerSettings: [.linkedFramework("Accelerate")]
+        ),
         .target(name: "DLABridgingCpp", dependencies: ["DeckLinkAPI"]),
         .target(name: "DeckLinkAPI"),
         .testTarget(name: "DLABCoreTests", dependencies: ["DLABCore"]),

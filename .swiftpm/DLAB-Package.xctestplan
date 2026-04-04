@@ -1,0 +1,31 @@
+{
+  "configurations" : [
+    {
+      "id" : "C9E4563E-261D-4E2A-93A8-737FB56E72BB",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "DLABCaptureTests",
+        "name" : "DLABCaptureTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "DLABCoreTests",
+        "name" : "DLABCoreTests"
+      }
+    }
+  ],
+  "version" : 1
+}
