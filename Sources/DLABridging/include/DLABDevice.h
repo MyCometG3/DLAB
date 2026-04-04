@@ -253,10 +253,10 @@ NS_ASSUME_NONNULL_BEGIN
  
  - input : This block is called prior to inputVideoSample delegate call is performed
  
- If you defined multiple lineNumfer as interrest, sequence of callback will be performed.
+ If you define multiple line numbers of interest, callbacks are performed in sequence.
  
  Buffer length is available from videoSetting.rowBytes.
- @param timingInfo TimingInfo of Output Video Frame
+ @param timingInfo TimingInfo of current Video Frame
  @param lineNumber lineNumber of VANC buffer.
  @param buffer VANC buffer of specified lineNumber.
  @return Return FALSE if further call is not required.
@@ -264,7 +264,7 @@ NS_ASSUME_NONNULL_BEGIN
 typedef BOOL (^VANCHandler) (CMSampleTimingInfo timingInfo, uint32_t lineNumber, void* buffer);
 
 /**
- Experimetal VANC Packet support : VANC Capture callback block
+ Experimental VANC Packet support : VANC Capture callback block
  
  This block is called in sync on delegate queue. You should process immediately.
  Sequence of callback will be triggered until you returned FALSE (when you finish all of VANC packets).
@@ -319,7 +319,7 @@ typedef BOOL (^InputAncillaryPacketHandler) (CMSampleTimingInfo timingInfo,
  
  - output : This block is called prior to outputVideoFrame is scheduled
  
- @param timingInfo TimingInfo of Video Input Frame
+ @param timingInfo TimingInfo of Output Video Frame
  @param did Data ID (DID) for ancillary packet.
  @param sdid Secondary Data ID (SDID) for ancillary packet.
  @param lineNumber lineNumber of VANC buffer.

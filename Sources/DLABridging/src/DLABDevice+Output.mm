@@ -597,7 +597,7 @@ NS_INLINE BOOL copyPlaneCVtoDL(DLABDevice* self, CVPixelBufferRef pixelBuffer, I
                             }
                             ready = (ret == S_OK);
                         }
-                        delete packet;
+                        packet->Release();
                     }
                     if (!ready) break;
                 }
@@ -648,7 +648,7 @@ NS_INLINE BOOL copyPlaneCVtoDL(DLABDevice* self, CVPixelBufferRef pixelBuffer, I
                             }
                             ready = (ret == S_OK);
                         }
-                        delete packet;
+                        packet->Release();
                     }
                     if (!ready) break;
                 }
