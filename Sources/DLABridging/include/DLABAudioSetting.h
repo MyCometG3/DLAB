@@ -3,14 +3,14 @@
 //  DLABCore
 //
 //  Created by Takashi Mochizuki on 2017/08/26.
-//  Copyright © 2017-2025 MyCometG3. All rights reserved.
+//  Copyright © 2017-2026 MyCometG3. All rights reserved.
 //
 
 /* This software is released under the MIT License, see LICENSE.txt. */
 
 #import <Foundation/Foundation.h>
 #import <CoreMedia/CoreMedia.h>
-#import <DLABConstants.h>
+#import <DLABridging/DLABConstants.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
