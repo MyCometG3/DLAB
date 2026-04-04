@@ -256,7 +256,7 @@ NS_ASSUME_NONNULL_BEGIN
  If you defined multiple lineNumfer as interrest, sequence of callback will be performed.
  
  Buffer length is available from videoSetting.rowBytes.
- @param timingInfo TimingInfo of Video Input Frame
+ @param timingInfo TimingInfo of Output Video Frame
  @param lineNumber lineNumber of VANC buffer.
  @param buffer VANC buffer of specified lineNumber.
  @return Return FALSE if further call is not required.
@@ -324,7 +324,7 @@ typedef BOOL (^InputAncillaryPacketHandler) (CMSampleTimingInfo timingInfo,
  @param sdid Secondary Data ID (SDID) for ancillary packet.
  @param lineNumber lineNumber of VANC buffer.
  @param dataStreamIndex the data stream index for ancillary packet.
- @return data VANC Packet data encoded in bmdAncillaryPacketFormatUInt8 format. Return nil if futher call is not required.
+ @return data VANC Packet data encoded in bmdAncillaryPacketFormatUInt8 format. Return nil if further calls are not required.
  */
 typedef NSData* _Nullable (^OutputVANCPacketHandler) (CMSampleTimingInfo timingInfo,
                                                       uint8_t* did,
@@ -340,13 +340,13 @@ typedef NSData* _Nullable (^OutputVANCPacketHandler) (CMSampleTimingInfo timingI
  
  - output : This block is called prior to outputVideoFrame is scheduled
  
- @param timingInfo TimingInfo of Video Input Frame
+ @param timingInfo TimingInfo of Output Video Frame
  @param did Data ID (DID) for ancillary packet.
  @param sdid Secondary Data ID (SDID) for ancillary packet.
  @param lineNumber lineNumber of ancillary buffer.
  @param dataStreamIndex the data stream index for ancillary packet.
  @param dataSpace the location of ancillary packet.
- @return data Ancillary packet data encoded in bmdAncillaryPacketFormatUInt8 format. Return nil if futher call is not required.
+ @return data Ancillary packet data encoded in bmdAncillaryPacketFormatUInt8 format. Return nil if further calls are not required.
  */
 typedef NSData* _Nullable (^OutputAncillaryPacketHandler) (CMSampleTimingInfo timingInfo,
                                                            uint8_t* did,

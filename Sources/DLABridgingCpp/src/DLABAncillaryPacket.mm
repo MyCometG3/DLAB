@@ -30,7 +30,11 @@ HRESULT DLABAncillaryPacket::Update(uint8_t did, uint8_t sdid, uint32_t line, ui
 
     const uint8_t* ptr = (const uint8_t*)data.bytes;
     const size_t length = (size_t)data.length;
-    vbuf.assign((const char*)ptr, (const char*)ptr + length);
+    if (length == 0) {
+        vbuf.clear();
+    } else {
+        vbuf.assign((const char*)ptr, (const char*)ptr + length);
+    }
 
     _did = did;
     _sdid = sdid;

@@ -14,13 +14,6 @@
 // MARK: - input (internal)
 /* =================================================================================== */
 
-NS_INLINE BOOL DLABAncillaryPacketMatchesDataSpace(IDeckLinkAncillaryPacket* packet,
-                                                   BMDAncillaryDataSpace dataSpace)
-{
-    if (!packet) return NO;
-    return (packet->GetDataSpace() == dataSpace);
-}
-
 @implementation DLABDevice (InputInternal)
 
 /* =================================================================================== */
@@ -811,18 +804,18 @@ static DLABTimecodeSetting* createTimecodeSetting(IDeckLinkVideoInputFrame* vide
     InputVANCPacketHandler inHandler = self.inputVANCPacketHandler;
     if (inHandler) {
         // Prepare for callback
-        IDeckLinkVideoFrameAncillaryPackets* frameAncillaryPackets = NULL;
-        inFrame->QueryInterface(IID_IDeckLinkVideoFrameAncillaryPackets,
+        IDeckLinkVideoFrameAncillaryPackets_v15_2* frameAncillaryPackets = NULL;
+        inFrame->QueryInterface(IID_IDeckLinkVideoFrameAncillaryPackets_v15_2,
                                 (void**)&frameAncillaryPackets);
         if (frameAncillaryPackets) {
-            IDeckLinkAncillaryPacketIterator* iterator = NULL;
+            IDeckLinkAncillaryPacketIterator_v15_2* iterator = NULL;
             frameAncillaryPackets->GetPacketIterator(&iterator);
             if (iterator) {
                 [self delegate_sync:^{
                     // Callback in delegate queue
                     while (TRUE) {
                         BOOL ready = FALSE;
-                        IDeckLinkAncillaryPacket* packet = NULL;
+                        IDeckLinkAncillaryPacket_v15_2* packet = NULL;
                         iterator->Next(&packet);
                         if (packet) {
                             ready = TRUE;
@@ -836,7 +829,7 @@ static DLABTimecodeSetting* createTimecodeSetting(IDeckLinkVideoInputFrame* vide
                                                             length:(NSUInteger)size
                                                       freeWhenDone:NO];
                             }
-                            if (data && DLABAncillaryPacketMatchesDataSpace(packet, bmdAncillaryDataSpaceVANC)) {
+                            if (data) {
                                 uint8_t did = packet->GetDID();
                                 uint8_t sdid = packet->GetSDID();
                                 uint32_t lineNumber = packet->GetLineNumber();

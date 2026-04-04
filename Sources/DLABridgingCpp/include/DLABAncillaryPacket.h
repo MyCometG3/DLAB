@@ -47,7 +47,7 @@ private:
     uint8_t _sdid;
     uint32_t _line;
     uint8_t _dataStreamIndex;
-    BMDAncillaryDataSpace _dataSpace; // Added in v15_3 or later
+    BMDAncillaryDataSpace _dataSpace = bmdAncillaryDataSpaceVANC; // Added in v15_3 or later
     std::vector<char> vbuf;
     std::atomic<ULONG> refCount;
 };
