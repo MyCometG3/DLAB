@@ -101,12 +101,19 @@ fileprivate final class CaptureWriterCache: @unchecked Sendable {
     }
 }
 
+/// Movie writer used by `CaptureManager` and other callers that need explicit
+/// start/stop control over `AVAssetWriter`.
+///
+/// Callers should await `closeSession()` before releasing the writer.
+/// Cleanup performed from `deinit` is a fallback path only, and it waits for
+/// `finishWriting` for a bounded amount of time before giving up.
 actor CaptureWriter: NSObject {
     typealias AssetWriterFactory = @Sendable (URL, AVFileType) throws -> AVAssetWriter
 
     private static let defaultAssetWriterFactory: AssetWriterFactory = { url, fileType in
         try AVAssetWriter(outputURL: url, fileType: fileType)
     }
+    private static let deinitFinishWritingTimeout: DispatchTimeInterval = .seconds(5)
 
     /* ============================================ */
     // MARK: - readonly property
@@ -259,12 +266,18 @@ actor CaptureWriter: NSObject {
         deinitHelper()
     }
     
-    /// nonisolated deinit helper function - synchronously close the recording session.
+    /// Nonisolated deinit helper function.
+    ///
+    /// This fallback path exists to give `AVAssetWriter.finishWriting` one last
+    /// bounded chance to complete file finalization when the writer is released
+    /// while recording is still active.
     nonisolated private func deinitHelper() {
         if let avAssetWriter = cache.assetWriter, cache.isRecording == true {
             let avAssetWriterInputVideo = cache.assetWriterInputVideo
             let avAssetWriterInputAudio = cache.assetWriterInputAudio
             let avAssetWriterInputTimecode = cache.assetWriterInputTimecode
+
+            NSLog("WARNING: CaptureWriter.deinit invoked while recording is active; attempting bounded finishWriting wait")
             
             avAssetWriterInputVideo?.markAsFinished()
             avAssetWriterInputAudio?.markAsFinished()
@@ -274,7 +287,10 @@ actor CaptureWriter: NSObject {
             avAssetWriter.finishWriting {
                 semaphore.signal()
             }
-            semaphore.wait()
+            let waitResult = semaphore.wait(timeout: .now() + CaptureWriter.deinitFinishWritingTimeout)
+            if waitResult == .timedOut {
+                NSLog("ERROR: Timed out waiting for AVAssetWriter.finishWriting during CaptureWriter.deinit; output file may be incomplete")
+            }
         }
     }
     
