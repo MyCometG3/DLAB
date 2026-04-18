@@ -291,6 +291,18 @@ actor CaptureWriter: NSObject {
     internal func testingSetAssetWriterFactory(_ factory: AssetWriterFactory?) {
         assetWriterFactory = factory ?? CaptureWriter.defaultAssetWriterFactory
     }
+
+    internal func testingSetDiagnosticHandler(_ handler: DiagnosticHandler?) {
+        diagnosticHandler = handler
+    }
+
+    nonisolated internal func testingEmitDeinitDiagnostics(didTimeout: Bool = false) {
+        cache.diagnosticHandler?(.deinitWhileRecording)
+        if didTimeout {
+            let timeoutSeconds = cache.deinitFinishWritingTimeoutSeconds
+            cache.diagnosticHandler?(.deinitFinishWritingTimedOut(timeoutSeconds: timeoutSeconds))
+        }
+    }
     
     deinit {
         // print("Writer.deinit")

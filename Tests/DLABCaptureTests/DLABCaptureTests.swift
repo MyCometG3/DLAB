@@ -44,6 +44,7 @@ final class DLABCaptureTests: XCTestCase {
     func testCaptureManagerTestingWriterConfigReflectsRecordingOptions() throws {
         let manager = CaptureManager()
         let movieURL = FileManager.default.temporaryDirectory.appendingPathComponent("capture-manager-config.mov")
+        let handler: @Sendable (CaptureWriterDiagnostic) -> Void = { _ in }
 
         manager.prefix = "Test-"
         manager.sampleTimescale = 0
@@ -54,6 +55,7 @@ final class DLABCaptureTests: XCTestCase {
         manager.encodeProRes422 = false
         manager.videoStyle = .SD_720_480_16_9
         manager.offset = NSPoint(x: 4, y: -2)
+        manager.captureWriterDiagnosticHandler = handler
 
         let config = manager.testingWriterConfig(movieURL: movieURL, prefix: manager.prefix)
 
@@ -69,6 +71,7 @@ final class DLABCaptureTests: XCTestCase {
         XCTAssertEqual(config.clapHOffset, 4)
         XCTAssertEqual(config.clapVOffset, -2)
         XCTAssertFalse(config.useTimecode)
+        XCTAssertNotNil(config.diagnosticHandler)
         XCTAssertNil(config.sourceVideoFormatDescription)
         XCTAssertNil(config.sourceAudioFormatDescription)
     }
@@ -123,5 +126,28 @@ final class DLABCaptureTests: XCTestCase {
 
         let appliedConfig = await writer.getConfig()
         XCTAssertEqual(appliedConfig.deinitFinishWritingTimeoutSeconds, 1.25, accuracy: 0.0001)
+    }
+
+    func testCaptureWriterDeinitCleanupReportsDiagnostics() {
+        let startExpectation = expectation(description: "start diagnostic emitted")
+        let timeoutExpectation = expectation(description: "timeout diagnostic emitted")
+        let writer = CaptureWriter()
+
+        Task {
+            var config = CaptureWriter.CaptureWriterConfig()
+            config.deinitFinishWritingTimeoutSeconds = 1.5
+            await writer.setConfig(config)
+            await writer.testingSetDiagnosticHandler { diagnostic in
+                if diagnostic == .deinitWhileRecording {
+                    startExpectation.fulfill()
+                }
+                if diagnostic == .deinitFinishWritingTimedOut(timeoutSeconds: 1.5) {
+                    timeoutExpectation.fulfill()
+                }
+            }
+            writer.testingEmitDeinitDiagnostics(didTimeout: true)
+        }
+
+        wait(for: [startExpectation, timeoutExpectation], timeout: 1.0)
     }
 }

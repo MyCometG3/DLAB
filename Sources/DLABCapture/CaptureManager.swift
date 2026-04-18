@@ -238,6 +238,9 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     
     /// Optional. Set preferred output URL.
     public var movieURL: URL? = nil
+
+    /// Optional callback for non-fatal `CaptureWriter` diagnostics during fallback cleanup.
+    public var captureWriterDiagnosticHandler: (@Sendable (CaptureWriterDiagnostic) -> Void)? = nil
     
     /// Optional. Auto-generated movie name prefix.
     public var prefix: String? = "DL-"
@@ -812,6 +815,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         
         config.useTimecode = timecodeReady
         config.traceStartupTiming = verbose
+        config.diagnosticHandler = captureWriterDiagnosticHandler
         config.sourceVideoFormatDescription = currentDevice?.inputVideoSetting?.videoFormatDescription
         config.sourceAudioFormatDescription = currentDevice?.inputAudioSetting?.audioFormatDescription
         
