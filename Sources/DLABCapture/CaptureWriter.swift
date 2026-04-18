@@ -110,6 +110,12 @@ fileprivate final class CaptureWriterCache: @unchecked Sendable {
         get { withLock { diagnosticHandlerValue } }
         set { withLock { diagnosticHandlerValue = newValue } }
     }
+
+    private var deinitFinishWritingTimeoutSecondsValue: TimeInterval = CaptureWriter.defaultDeinitFinishWritingTimeoutSeconds
+    var deinitFinishWritingTimeoutSeconds: TimeInterval {
+        get { withLock { deinitFinishWritingTimeoutSecondsValue } }
+        set { withLock { deinitFinishWritingTimeoutSecondsValue = newValue } }
+    }
 }
 
 /// Movie writer used by `CaptureManager` and other callers that need explicit
@@ -121,11 +127,11 @@ fileprivate final class CaptureWriterCache: @unchecked Sendable {
 actor CaptureWriter: NSObject {
     typealias AssetWriterFactory = @Sendable (URL, AVFileType) throws -> AVAssetWriter
     public typealias DiagnosticHandler = @Sendable (CaptureWriterDiagnostic) -> Void
+    public static let defaultDeinitFinishWritingTimeoutSeconds: TimeInterval = 5.0
 
     private static let defaultAssetWriterFactory: AssetWriterFactory = { url, fileType in
         try AVAssetWriter(outputURL: url, fileType: fileType)
     }
-    private static let deinitFinishWritingTimeout: DispatchTimeInterval = .seconds(5)
 
     /* ============================================ */
     // MARK: - readonly property
@@ -218,6 +224,13 @@ actor CaptureWriter: NSObject {
             cache.diagnosticHandler = diagnosticHandler
         }
     }
+    /// Bounded wait used by fallback `deinit` cleanup before giving up on `finishWriting`.
+    public var deinitFinishWritingTimeoutSeconds: TimeInterval = CaptureWriter.defaultDeinitFinishWritingTimeoutSeconds {
+        didSet {
+            deinitFinishWritingTimeoutSeconds = max(0.0, deinitFinishWritingTimeoutSeconds)
+            cache.deinitFinishWritingTimeoutSeconds = deinitFinishWritingTimeoutSeconds
+        }
+    }
     
     /* ============================================ */
     // MARK: - private variable
@@ -270,6 +283,7 @@ actor CaptureWriter: NSObject {
     
     override init() {
         super.init()
+        cache.deinitFinishWritingTimeoutSeconds = deinitFinishWritingTimeoutSeconds
         
         // print("Writer.init")
     }
@@ -294,6 +308,7 @@ actor CaptureWriter: NSObject {
             let avAssetWriterInputVideo = cache.assetWriterInputVideo
             let avAssetWriterInputAudio = cache.assetWriterInputAudio
             let avAssetWriterInputTimecode = cache.assetWriterInputTimecode
+            let timeoutSeconds = cache.deinitFinishWritingTimeoutSeconds
 
             cache.diagnosticHandler?(.deinitWhileRecording)
             
@@ -305,9 +320,9 @@ actor CaptureWriter: NSObject {
             avAssetWriter.finishWriting {
                 semaphore.signal()
             }
-            let waitResult = semaphore.wait(timeout: .now() + CaptureWriter.deinitFinishWritingTimeout)
+            let waitResult = semaphore.wait(timeout: .now() + timeoutSeconds)
             if waitResult == .timedOut {
-                cache.diagnosticHandler?(.deinitFinishWritingTimedOut(timeoutSeconds: 5.0))
+                cache.diagnosticHandler?(.deinitFinishWritingTimedOut(timeoutSeconds: timeoutSeconds))
             }
         }
     }
@@ -1138,6 +1153,7 @@ extension CaptureWriter {
         public var clapVOffset: Int = 0
         public var traceStartupTiming: Bool = false
         public var diagnosticHandler: DiagnosticHandler? = nil
+        public var deinitFinishWritingTimeoutSeconds: TimeInterval = CaptureWriter.defaultDeinitFinishWritingTimeoutSeconds
         
         public init() {}
     }
@@ -1179,6 +1195,7 @@ extension CaptureWriter {
         config.clapVOffset = self.clapVOffset
         config.traceStartupTiming = self.traceStartupTiming
         config.diagnosticHandler = self.diagnosticHandler
+        config.deinitFinishWritingTimeoutSeconds = self.deinitFinishWritingTimeoutSeconds
         
         return config
     }
@@ -1214,5 +1231,6 @@ extension CaptureWriter {
         self.clapVOffset = config.clapVOffset
         self.traceStartupTiming = config.traceStartupTiming
         self.diagnosticHandler = config.diagnosticHandler
+        self.deinitFinishWritingTimeoutSeconds = config.deinitFinishWritingTimeoutSeconds
     }
 }

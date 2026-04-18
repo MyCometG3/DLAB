@@ -113,4 +113,15 @@ final class DLABCaptureTests: XCTestCase {
         let appliedConfig = await writer.getConfig()
         XCTAssertNotNil(appliedConfig.diagnosticHandler)
     }
+
+    func testCaptureWriterConfigRetainsDeinitTimeout() async throws {
+        let writer = CaptureWriter()
+        var config = CaptureWriter.CaptureWriterConfig()
+
+        config.deinitFinishWritingTimeoutSeconds = 1.25
+        await writer.setConfig(config)
+
+        let appliedConfig = await writer.getConfig()
+        XCTAssertEqual(appliedConfig.deinitFinishWritingTimeoutSeconds, 1.25, accuracy: 0.0001)
+    }
 }
