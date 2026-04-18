@@ -60,6 +60,11 @@ enum CaptureWriterError: Swift.Error, LocalizedError {
     }
 }
 
+public enum CaptureWriterDiagnostic: Sendable, Equatable {
+    case deinitWhileRecording
+    case deinitFinishWritingTimedOut(timeoutSeconds: Double)
+}
+
 /// Thread safe backing store - works with deinit and nonisolated func.
 fileprivate final class CaptureWriterCache: @unchecked Sendable {
     private let lock = UnfairLockBox()
@@ -99,6 +104,12 @@ fileprivate final class CaptureWriterCache: @unchecked Sendable {
         get { withLock { avAssetWriterInputTimecodeValue } }
         set { withLock { avAssetWriterInputTimecodeValue = newValue } }
     }
+
+    private var diagnosticHandlerValue: (@Sendable (CaptureWriterDiagnostic) -> Void)? = nil
+    var diagnosticHandler: (@Sendable (CaptureWriterDiagnostic) -> Void)? {
+        get { withLock { diagnosticHandlerValue } }
+        set { withLock { diagnosticHandlerValue = newValue } }
+    }
 }
 
 /// Movie writer used by `CaptureManager` and other callers that need explicit
@@ -109,6 +120,7 @@ fileprivate final class CaptureWriterCache: @unchecked Sendable {
 /// `finishWriting` for a bounded amount of time before giving up.
 actor CaptureWriter: NSObject {
     typealias AssetWriterFactory = @Sendable (URL, AVFileType) throws -> AVAssetWriter
+    public typealias DiagnosticHandler = @Sendable (CaptureWriterDiagnostic) -> Void
 
     private static let defaultAssetWriterFactory: AssetWriterFactory = { url, fileType in
         try AVAssetWriter(outputURL: url, fileType: fileType)
@@ -200,6 +212,12 @@ actor CaptureWriter: NSObject {
     public var clapVOffset : Int = 0
     /// Enable startup phase timing logs for diagnostics.
     public var traceStartupTiming: Bool = false
+    /// Optional callback for non-fatal diagnostics that can occur during fallback cleanup.
+    public var diagnosticHandler: DiagnosticHandler? = nil {
+        didSet {
+            cache.diagnosticHandler = diagnosticHandler
+        }
+    }
     
     /* ============================================ */
     // MARK: - private variable
@@ -277,7 +295,7 @@ actor CaptureWriter: NSObject {
             let avAssetWriterInputAudio = cache.assetWriterInputAudio
             let avAssetWriterInputTimecode = cache.assetWriterInputTimecode
 
-            NSLog("WARNING: CaptureWriter.deinit invoked while recording is active; attempting bounded finishWriting wait")
+            cache.diagnosticHandler?(.deinitWhileRecording)
             
             avAssetWriterInputVideo?.markAsFinished()
             avAssetWriterInputAudio?.markAsFinished()
@@ -289,7 +307,7 @@ actor CaptureWriter: NSObject {
             }
             let waitResult = semaphore.wait(timeout: .now() + CaptureWriter.deinitFinishWritingTimeout)
             if waitResult == .timedOut {
-                NSLog("ERROR: Timed out waiting for AVAssetWriter.finishWriting during CaptureWriter.deinit; output file may be incomplete")
+                cache.diagnosticHandler?(.deinitFinishWritingTimedOut(timeoutSeconds: 5.0))
             }
         }
     }
@@ -1119,6 +1137,7 @@ extension CaptureWriter {
         public var clapHOffset: Int = 0
         public var clapVOffset: Int = 0
         public var traceStartupTiming: Bool = false
+        public var diagnosticHandler: DiagnosticHandler? = nil
         
         public init() {}
     }
@@ -1159,6 +1178,7 @@ extension CaptureWriter {
         config.clapHOffset = self.clapHOffset
         config.clapVOffset = self.clapVOffset
         config.traceStartupTiming = self.traceStartupTiming
+        config.diagnosticHandler = self.diagnosticHandler
         
         return config
     }
@@ -1193,5 +1213,6 @@ extension CaptureWriter {
         self.clapHOffset = config.clapHOffset
         self.clapVOffset = config.clapVOffset
         self.traceStartupTiming = config.traceStartupTiming
+        self.diagnosticHandler = config.diagnosticHandler
     }
 }

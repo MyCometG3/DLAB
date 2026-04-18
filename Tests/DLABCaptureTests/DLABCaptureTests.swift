@@ -101,4 +101,16 @@ final class DLABCaptureTests: XCTestCase {
         XCTAssertTrue(reason.contains("AVAssetWriter initialization failed"))
         XCTAssertTrue(reason.contains("Injected writer init failure"))
     }
+
+    func testCaptureWriterConfigRetainsDiagnosticHandler() async throws {
+        let writer = CaptureWriter()
+        var config = CaptureWriter.CaptureWriterConfig()
+        let handler: CaptureWriter.DiagnosticHandler = { _ in }
+
+        config.diagnosticHandler = handler
+        await writer.setConfig(config)
+
+        let appliedConfig = await writer.getConfig()
+        XCTAssertNotNil(appliedConfig.diagnosticHandler)
+    }
 }
