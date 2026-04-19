@@ -141,7 +141,7 @@ final class DLABCaptureTests: XCTestCase {
                 if diagnostic == .deinitWhileRecording {
                     startExpectation.fulfill()
                 }
-                if diagnostic == .deinitFinishWritingTimedOut(timeoutSeconds: 1.5) {
+                if diagnostic == .finishWritingTimedOut(timeoutSeconds: 1.5) {
                     timeoutExpectation.fulfill()
                 }
             }

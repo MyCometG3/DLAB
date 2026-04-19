@@ -25,6 +25,7 @@ final class UnfairLockBox: @unchecked Sendable {
 enum CaptureWriterError: Swift.Error, LocalizedError {
     case unsupportedMediaType(String)
     case assetWriterIsNotAvailable(String)
+    case finishWritingTimedOut(String)
     case invalidAudioOutputSettings
     case invalidVideoOutputSettings
     case invalidTimecodeOutputSettings
@@ -40,6 +41,8 @@ enum CaptureWriterError: Swift.Error, LocalizedError {
             return "Unsupported media type: \(reason)."
         case .assetWriterIsNotAvailable(let reason):
             return "Invalid AVAssetWriter: \(reason)."
+        case .finishWritingTimedOut(let reason):
+            return "Timed out while finalizing movie file: \(reason)."
         case .invalidAudioOutputSettings:
             return "Invalid audio output settings provided."
         case .invalidVideoOutputSettings:
@@ -62,7 +65,7 @@ enum CaptureWriterError: Swift.Error, LocalizedError {
 
 public enum CaptureWriterDiagnostic: Sendable, Equatable {
     case deinitWhileRecording
-    case deinitFinishWritingTimedOut(timeoutSeconds: Double)
+    case finishWritingTimedOut(timeoutSeconds: Double)
 }
 
 /// Thread safe backing store - works with deinit and nonisolated func.
@@ -116,6 +119,11 @@ fileprivate final class CaptureWriterCache: @unchecked Sendable {
         get { withLock { deinitFinishWritingTimeoutSecondsValue } }
         set { withLock { deinitFinishWritingTimeoutSecondsValue = newValue } }
     }
+}
+
+private final class FinishWritingResumeState: @unchecked Sendable {
+    let lock = UnfairLockBox()
+    var resumed = false
 }
 
 /// Movie writer used by `CaptureManager` and other callers that need explicit
@@ -300,7 +308,7 @@ actor CaptureWriter: NSObject {
         cache.diagnosticHandler?(.deinitWhileRecording)
         if didTimeout {
             let timeoutSeconds = cache.deinitFinishWritingTimeoutSeconds
-            cache.diagnosticHandler?(.deinitFinishWritingTimedOut(timeoutSeconds: timeoutSeconds))
+            cache.diagnosticHandler?(.finishWritingTimedOut(timeoutSeconds: timeoutSeconds))
         }
     }
     
@@ -334,7 +342,7 @@ actor CaptureWriter: NSObject {
             }
             let waitResult = semaphore.wait(timeout: .now() + timeoutSeconds)
             if waitResult == .timedOut {
-                cache.diagnosticHandler?(.deinitFinishWritingTimedOut(timeoutSeconds: timeoutSeconds))
+                cache.diagnosticHandler?(.finishWritingTimedOut(timeoutSeconds: timeoutSeconds))
             }
         }
     }
@@ -507,14 +515,16 @@ actor CaptureWriter: NSObject {
             if duration > 0.0 {
                 avAssetWriter.endSession(atSourceTime: endTime)
             }
-            await withCheckedContinuation { continuation in
-                avAssetWriter.finishWriting {
-                    continuation.resume()
-                }
-            }
+            let timeoutSeconds = deinitFinishWritingTimeoutSeconds
+            let didFinish = await waitForFinishWriting(avAssetWriter, timeoutSeconds: timeoutSeconds)
             defer {
                 // unref AVAssetWriter
                 cleanUp()
+            }
+
+            if didFinish == false {
+                diagnosticHandler?(.finishWritingTimedOut(timeoutSeconds: timeoutSeconds))
+                throw CaptureWriterError.finishWritingTimedOut("AVAssetWriter.finishWriting did not complete within \(timeoutSeconds) seconds.")
             }
             
             // Finalize TS variables and duration
@@ -534,6 +544,35 @@ actor CaptureWriter: NSObject {
         } else {
             let reason = "AVAssetWriter is not available."
             throw CaptureWriterError.assetWriterIsNotAvailable(reason)
+        }
+    }
+
+    private func waitForFinishWriting(_ avAssetWriter: AVAssetWriter, timeoutSeconds: TimeInterval) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let state = FinishWritingResumeState()
+
+            let resume: @Sendable (Bool) -> Void = { value in
+                let shouldResume = state.lock.withLock {
+                    if state.resumed {
+                        return false
+                    }
+                    state.resumed = true
+                    return true
+                }
+                if shouldResume {
+                    continuation.resume(returning: value)
+                }
+            }
+
+            avAssetWriter.finishWriting {
+                resume(true)
+            }
+
+            if timeoutSeconds > 0.0 {
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeoutSeconds) {
+                    resume(false)
+                }
+            }
         }
     }
     
