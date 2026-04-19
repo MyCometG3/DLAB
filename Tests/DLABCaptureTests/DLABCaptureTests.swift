@@ -44,6 +44,7 @@ final class DLABCaptureTests: XCTestCase {
     func testCaptureManagerTestingWriterConfigReflectsRecordingOptions() throws {
         let manager = CaptureManager()
         let movieURL = FileManager.default.temporaryDirectory.appendingPathComponent("capture-manager-config.mov")
+        let handler: @Sendable (CaptureWriterDiagnostic) -> Void = { _ in }
 
         manager.prefix = "Test-"
         manager.sampleTimescale = 0
@@ -54,6 +55,7 @@ final class DLABCaptureTests: XCTestCase {
         manager.encodeProRes422 = false
         manager.videoStyle = .SD_720_480_16_9
         manager.offset = NSPoint(x: 4, y: -2)
+        manager.captureWriterDiagnosticHandler = handler
 
         let config = manager.testingWriterConfig(movieURL: movieURL, prefix: manager.prefix)
 
@@ -69,6 +71,7 @@ final class DLABCaptureTests: XCTestCase {
         XCTAssertEqual(config.clapHOffset, 4)
         XCTAssertEqual(config.clapVOffset, -2)
         XCTAssertFalse(config.useTimecode)
+        XCTAssertNotNil(config.diagnosticHandler)
         XCTAssertNil(config.sourceVideoFormatDescription)
         XCTAssertNil(config.sourceAudioFormatDescription)
     }
@@ -100,5 +103,60 @@ final class DLABCaptureTests: XCTestCase {
         }
         XCTAssertTrue(reason.contains("AVAssetWriter initialization failed"))
         XCTAssertTrue(reason.contains("Injected writer init failure"))
+    }
+
+    func testCaptureWriterConfigRetainsDiagnosticHandler() async throws {
+        let writer = CaptureWriter()
+        var config = CaptureWriter.CaptureWriterConfig()
+        let handler: CaptureWriter.DiagnosticHandler = { _ in }
+
+        config.diagnosticHandler = handler
+        await writer.setConfig(config)
+
+        let appliedConfig = await writer.getConfig()
+        XCTAssertNotNil(appliedConfig.diagnosticHandler)
+    }
+
+    func testCaptureWriterConfigRetainsFinishWritingTimeout() async throws {
+        let writer = CaptureWriter()
+        var config = CaptureWriter.CaptureWriterConfig()
+
+        config.finishWritingTimeoutSeconds = 1.25
+        await writer.setConfig(config)
+
+        let appliedConfig = await writer.getConfig()
+        XCTAssertEqual(appliedConfig.finishWritingTimeoutSeconds, 1.25, accuracy: 0.0001)
+    }
+
+    func testCaptureWriterConfigClampsZeroFinishWritingTimeout() async throws {
+        let writer = CaptureWriter()
+        var config = CaptureWriter.CaptureWriterConfig()
+
+        config.finishWritingTimeoutSeconds = 0.0
+        await writer.setConfig(config)
+
+        let appliedConfig = await writer.getConfig()
+        XCTAssertGreaterThan(appliedConfig.finishWritingTimeoutSeconds, 0.0)
+    }
+
+    func testCaptureWriterDeinitCleanupReportsDiagnostics() async {
+        let startExpectation = expectation(description: "deinit cleanup diagnostic emitted")
+        let timeoutExpectation = expectation(description: "deinit timeout diagnostic emitted")
+        let writer = CaptureWriter()
+
+        var config = CaptureWriter.CaptureWriterConfig()
+        config.finishWritingTimeoutSeconds = 1.5
+        await writer.setConfig(config)
+        await writer.testingSetDiagnosticHandler { diagnostic in
+            if diagnostic == .deinitWhileRecording {
+                startExpectation.fulfill()
+            }
+            if diagnostic == .finishWritingTimedOut(timeoutSeconds: 1.5) {
+                timeoutExpectation.fulfill()
+            }
+        }
+        writer.testingInvokeDeinitTimeoutPath()
+
+        await fulfillment(of: [startExpectation, timeoutExpectation], timeout: 1.0)
     }
 }
