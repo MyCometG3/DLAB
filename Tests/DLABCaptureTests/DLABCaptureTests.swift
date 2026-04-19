@@ -117,44 +117,42 @@ final class DLABCaptureTests: XCTestCase {
         XCTAssertNotNil(appliedConfig.diagnosticHandler)
     }
 
-    func testCaptureWriterConfigRetainsDeinitTimeout() async throws {
+    func testCaptureWriterConfigRetainsFinishWritingTimeout() async throws {
         let writer = CaptureWriter()
         var config = CaptureWriter.CaptureWriterConfig()
 
-        config.deinitFinishWritingTimeoutSeconds = 1.25
+        config.finishWritingTimeoutSeconds = 1.25
         await writer.setConfig(config)
 
         let appliedConfig = await writer.getConfig()
-        XCTAssertEqual(appliedConfig.deinitFinishWritingTimeoutSeconds, 1.25, accuracy: 0.0001)
+        XCTAssertEqual(appliedConfig.finishWritingTimeoutSeconds, 1.25, accuracy: 0.0001)
     }
 
-    func testCaptureWriterConfigClampsZeroDeinitTimeout() async throws {
+    func testCaptureWriterConfigClampsZeroFinishWritingTimeout() async throws {
         let writer = CaptureWriter()
         var config = CaptureWriter.CaptureWriterConfig()
 
-        config.deinitFinishWritingTimeoutSeconds = 0.0
+        config.finishWritingTimeoutSeconds = 0.0
         await writer.setConfig(config)
 
         let appliedConfig = await writer.getConfig()
-        XCTAssertGreaterThan(appliedConfig.deinitFinishWritingTimeoutSeconds, 0.0)
+        XCTAssertGreaterThan(appliedConfig.finishWritingTimeoutSeconds, 0.0)
     }
 
-    func testCaptureWriterDeinitCleanupReportsDiagnostics() {
+    func testCaptureWriterDeinitCleanupReportsDiagnostics() async {
         let startExpectation = expectation(description: "deinit cleanup diagnostic emitted")
         let writer = CaptureWriter()
 
-        Task {
-            var config = CaptureWriter.CaptureWriterConfig()
-            config.deinitFinishWritingTimeoutSeconds = 1.5
-            await writer.setConfig(config)
-            await writer.testingSetDiagnosticHandler { diagnostic in
-                if diagnostic == .deinitWhileRecording {
-                    startExpectation.fulfill()
-                }
+        var config = CaptureWriter.CaptureWriterConfig()
+        config.finishWritingTimeoutSeconds = 1.5
+        await writer.setConfig(config)
+        await writer.testingSetDiagnosticHandler { diagnostic in
+            if diagnostic == .deinitWhileRecording {
+                startExpectation.fulfill()
             }
-            writer.testingInvokeDeinitCleanupWithoutWriter()
         }
+        writer.testingInvokeDeinitCleanupWithoutWriter()
 
-        wait(for: [startExpectation], timeout: 1.0)
+        await fulfillment(of: [startExpectation], timeout: 1.0)
     }
 }

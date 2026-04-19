@@ -70,6 +70,13 @@ public enum CaptureWriterDiagnostic: Sendable, Equatable {
 
 /// Thread safe backing store - works with deinit and nonisolated func.
 fileprivate final class CaptureWriterCache: @unchecked Sendable {
+    private final class RetainedAssetWriterBox: @unchecked Sendable {
+        let writer: AVAssetWriter
+        init(writer: AVAssetWriter) {
+            self.writer = writer
+        }
+    }
+
     private let lock = UnfairLockBox()
     private func withLock<T>(_ block: () -> T) -> T {
         lock.withLock(block)
@@ -114,10 +121,22 @@ fileprivate final class CaptureWriterCache: @unchecked Sendable {
         set { withLock { diagnosticHandlerValue = newValue } }
     }
 
-    private var deinitFinishWritingTimeoutSecondsValue: TimeInterval = CaptureWriter.defaultDeinitFinishWritingTimeoutSeconds
-    var deinitFinishWritingTimeoutSeconds: TimeInterval {
-        get { withLock { deinitFinishWritingTimeoutSecondsValue } }
-        set { withLock { deinitFinishWritingTimeoutSecondsValue = newValue } }
+    private var finishWritingTimeoutSecondsValue: TimeInterval = CaptureWriter.defaultFinishWritingTimeoutSeconds
+    var finishWritingTimeoutSeconds: TimeInterval {
+        get { withLock { finishWritingTimeoutSecondsValue } }
+        set { withLock { finishWritingTimeoutSecondsValue = newValue } }
+    }
+
+    private var retainedAssetWritersValue: [ObjectIdentifier: RetainedAssetWriterBox] = [:]
+    func retainAssetWriter(_ writer: AVAssetWriter) {
+        withLock { () -> Void in
+            retainedAssetWritersValue[ObjectIdentifier(writer)] = RetainedAssetWriterBox(writer: writer)
+        }
+    }
+    func releaseAssetWriter(forKey key: ObjectIdentifier) {
+        withLock { () -> Void in
+            retainedAssetWritersValue.removeValue(forKey: key)
+        }
     }
 }
 
@@ -135,7 +154,7 @@ private final class FinishWritingResumeState: @unchecked Sendable {
 actor CaptureWriter: NSObject {
     typealias AssetWriterFactory = @Sendable (URL, AVFileType) throws -> AVAssetWriter
     public typealias DiagnosticHandler = @Sendable (CaptureWriterDiagnostic) -> Void
-    public static let defaultDeinitFinishWritingTimeoutSeconds: TimeInterval = 5.0
+    public static let defaultFinishWritingTimeoutSeconds: TimeInterval = 5.0
     private static let minimumFinishWritingTimeoutSeconds: TimeInterval = 0.001
 
     private static let defaultAssetWriterFactory: AssetWriterFactory = { url, fileType in
@@ -233,11 +252,16 @@ actor CaptureWriter: NSObject {
             cache.diagnosticHandler = diagnosticHandler
         }
     }
-    /// Bounded wait used by fallback `deinit` cleanup before giving up on `finishWriting`.
-    public var deinitFinishWritingTimeoutSeconds: TimeInterval = CaptureWriter.defaultDeinitFinishWritingTimeoutSeconds {
-        didSet {
-            deinitFinishWritingTimeoutSeconds = max(CaptureWriter.minimumFinishWritingTimeoutSeconds, deinitFinishWritingTimeoutSeconds)
-            cache.deinitFinishWritingTimeoutSeconds = deinitFinishWritingTimeoutSeconds
+    /// Bounded wait used by `finishWriting` before giving up in normal close and fallback `deinit` cleanup paths.
+    private var finishWritingTimeoutSecondsStorage: TimeInterval = CaptureWriter.defaultFinishWritingTimeoutSeconds
+    public var finishWritingTimeoutSeconds: TimeInterval {
+        get {
+            finishWritingTimeoutSecondsStorage
+        }
+        set {
+            let clampedValue = max(CaptureWriter.minimumFinishWritingTimeoutSeconds, newValue)
+            finishWritingTimeoutSecondsStorage = clampedValue
+            cache.finishWritingTimeoutSeconds = clampedValue
         }
     }
     
@@ -292,7 +316,7 @@ actor CaptureWriter: NSObject {
     
     override init() {
         super.init()
-        cache.deinitFinishWritingTimeoutSeconds = deinitFinishWritingTimeoutSeconds
+        cache.finishWritingTimeoutSeconds = finishWritingTimeoutSecondsStorage
         
         // print("Writer.init")
     }
@@ -308,7 +332,7 @@ actor CaptureWriter: NSObject {
     nonisolated internal func testingEmitDeinitDiagnostics(didTimeout: Bool = false) {
         cache.diagnosticHandler?(.deinitWhileRecording)
         if didTimeout {
-            let timeoutSeconds = cache.deinitFinishWritingTimeoutSeconds
+            let timeoutSeconds = cache.finishWritingTimeoutSeconds
             cache.diagnosticHandler?(.finishWritingTimedOut(timeoutSeconds: timeoutSeconds))
         }
     }
@@ -336,7 +360,7 @@ actor CaptureWriter: NSObject {
             let avAssetWriterInputVideo = cache.assetWriterInputVideo
             let avAssetWriterInputAudio = cache.assetWriterInputAudio
             let avAssetWriterInputTimecode = cache.assetWriterInputTimecode
-            let timeoutSeconds = cache.deinitFinishWritingTimeoutSeconds
+            let timeoutSeconds = cache.finishWritingTimeoutSeconds
 
             cache.diagnosticHandler?(.deinitWhileRecording)
             
@@ -523,7 +547,7 @@ actor CaptureWriter: NSObject {
             if duration > 0.0 {
                 avAssetWriter.endSession(atSourceTime: endTime)
             }
-            let timeoutSeconds = deinitFinishWritingTimeoutSeconds
+            let timeoutSeconds = finishWritingTimeoutSeconds
             let didFinish = await waitForFinishWriting(avAssetWriter, timeoutSeconds: timeoutSeconds)
             defer {
                 // unref AVAssetWriter
@@ -558,6 +582,9 @@ actor CaptureWriter: NSObject {
     private func waitForFinishWriting(_ avAssetWriter: AVAssetWriter, timeoutSeconds: TimeInterval) async -> Bool {
         await withCheckedContinuation { continuation in
             let state = FinishWritingResumeState()
+            let cache = self.cache
+            let writerKey = ObjectIdentifier(avAssetWriter)
+            cache.retainAssetWriter(avAssetWriter)
 
             let resume: @Sendable (Bool) -> Void = { value in
                 let shouldResume = state.lock.withLock {
@@ -573,6 +600,7 @@ actor CaptureWriter: NSObject {
             }
 
             avAssetWriter.finishWriting {
+                cache.releaseAssetWriter(forKey: writerKey)
                 resume(true)
             }
 
@@ -1210,7 +1238,7 @@ extension CaptureWriter {
         public var clapVOffset: Int = 0
         public var traceStartupTiming: Bool = false
         public var diagnosticHandler: DiagnosticHandler? = nil
-        public var deinitFinishWritingTimeoutSeconds: TimeInterval = CaptureWriter.defaultDeinitFinishWritingTimeoutSeconds
+        public var finishWritingTimeoutSeconds: TimeInterval = CaptureWriter.defaultFinishWritingTimeoutSeconds
         
         public init() {}
     }
@@ -1252,7 +1280,7 @@ extension CaptureWriter {
         config.clapVOffset = self.clapVOffset
         config.traceStartupTiming = self.traceStartupTiming
         config.diagnosticHandler = self.diagnosticHandler
-        config.deinitFinishWritingTimeoutSeconds = self.deinitFinishWritingTimeoutSeconds
+        config.finishWritingTimeoutSeconds = self.finishWritingTimeoutSeconds
         
         return config
     }
@@ -1288,6 +1316,6 @@ extension CaptureWriter {
         self.clapVOffset = config.clapVOffset
         self.traceStartupTiming = config.traceStartupTiming
         self.diagnosticHandler = config.diagnosticHandler
-        self.deinitFinishWritingTimeoutSeconds = config.deinitFinishWritingTimeoutSeconds
+        self.finishWritingTimeoutSeconds = config.finishWritingTimeoutSeconds
     }
 }
