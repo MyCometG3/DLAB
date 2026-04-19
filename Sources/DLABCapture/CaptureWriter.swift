@@ -575,7 +575,7 @@ actor CaptureWriter: NSObject {
 
             if didFinish == false {
                 diagnosticHandler?(.finishWritingTimedOut(timeoutSeconds: timeoutSeconds))
-                throw CaptureWriterError.finishWritingTimedOut("AVAssetWriter.finishWriting did not complete within \(timeoutSeconds) seconds.")
+                throw CaptureWriterError.finishWritingTimedOut("AVAssetWriter.finishWriting did not complete within \(timeoutSeconds) seconds")
             }
             
             // Finalize TS variables and duration
