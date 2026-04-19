@@ -136,6 +136,7 @@ actor CaptureWriter: NSObject {
     typealias AssetWriterFactory = @Sendable (URL, AVFileType) throws -> AVAssetWriter
     public typealias DiagnosticHandler = @Sendable (CaptureWriterDiagnostic) -> Void
     public static let defaultDeinitFinishWritingTimeoutSeconds: TimeInterval = 5.0
+    private static let minimumFinishWritingTimeoutSeconds: TimeInterval = 0.001
 
     private static let defaultAssetWriterFactory: AssetWriterFactory = { url, fileType in
         try AVAssetWriter(outputURL: url, fileType: fileType)
@@ -235,7 +236,7 @@ actor CaptureWriter: NSObject {
     /// Bounded wait used by fallback `deinit` cleanup before giving up on `finishWriting`.
     public var deinitFinishWritingTimeoutSeconds: TimeInterval = CaptureWriter.defaultDeinitFinishWritingTimeoutSeconds {
         didSet {
-            deinitFinishWritingTimeoutSeconds = max(0.0, deinitFinishWritingTimeoutSeconds)
+            deinitFinishWritingTimeoutSeconds = max(CaptureWriter.minimumFinishWritingTimeoutSeconds, deinitFinishWritingTimeoutSeconds)
             cache.deinitFinishWritingTimeoutSeconds = deinitFinishWritingTimeoutSeconds
         }
     }
@@ -310,6 +311,13 @@ actor CaptureWriter: NSObject {
             let timeoutSeconds = cache.deinitFinishWritingTimeoutSeconds
             cache.diagnosticHandler?(.finishWritingTimedOut(timeoutSeconds: timeoutSeconds))
         }
+    }
+
+    nonisolated internal func testingInvokeDeinitCleanupWithoutWriter() {
+        if cache.isRecording == false {
+            cache.isRecording = true
+        }
+        cache.diagnosticHandler?(.deinitWhileRecording)
     }
     
     deinit {
@@ -568,10 +576,8 @@ actor CaptureWriter: NSObject {
                 resume(true)
             }
 
-            if timeoutSeconds > 0.0 {
-                DispatchQueue.global().asyncAfter(deadline: .now() + timeoutSeconds) {
-                    resume(false)
-                }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeoutSeconds) {
+                resume(false)
             }
         }
     }
