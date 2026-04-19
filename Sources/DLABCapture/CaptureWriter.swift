@@ -138,18 +138,24 @@ fileprivate final class CaptureWriterCache: @unchecked Sendable {
             retainedAssetWritersValue.removeValue(forKey: key)
         }
     }
-}
-
-private final class AssetWriterBox: @unchecked Sendable {
-    let writer: AVAssetWriter
-    init(writer: AVAssetWriter) {
-        self.writer = writer
+    func cancelWriting(forKey key: ObjectIdentifier) {
+        let writer = withLock {
+            retainedAssetWritersValue[key]?.writer
+        }
+        writer?.cancelWriting()
     }
 }
 
 private final class FinishWritingResumeState: @unchecked Sendable {
     let lock = UnfairLockBox()
     var resumed = false
+}
+
+private final class DispatchWorkItemBox: @unchecked Sendable {
+    let workItem: DispatchWorkItem
+    init(workItem: DispatchWorkItem) {
+        self.workItem = workItem
+    }
 }
 
 /// Movie writer used by `CaptureManager` and other callers that need explicit
@@ -597,7 +603,6 @@ actor CaptureWriter: NSObject {
             let state = FinishWritingResumeState()
             let cache = self.cache
             let writerKey = ObjectIdentifier(avAssetWriter)
-            let writerBox = AssetWriterBox(writer: avAssetWriter)
             cache.retainAssetWriter(avAssetWriter)
 
             let settle: @Sendable (Bool, Bool) -> Void = { didFinish, shouldCancelWriting in
@@ -610,19 +615,22 @@ actor CaptureWriter: NSObject {
                 }
                 if shouldResume {
                     if shouldCancelWriting {
-                        writerBox.writer.cancelWriting()
+                        cache.cancelWriting(forKey: writerKey)
                     }
                     cache.releaseAssetWriter(forKey: writerKey)
                     continuation.resume(returning: didFinish)
                 }
             }
 
-            avAssetWriter.finishWriting {
-                settle(true, false)
-            }
-
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeoutSeconds) {
+            let timeoutWorkItem = DispatchWorkItem {
                 settle(false, true)
+            }
+            let timeoutWorkItemBox = DispatchWorkItemBox(workItem: timeoutWorkItem)
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeoutSeconds, execute: timeoutWorkItem)
+
+            avAssetWriter.finishWriting {
+                timeoutWorkItemBox.workItem.cancel()
+                settle(true, false)
             }
         }
     }
