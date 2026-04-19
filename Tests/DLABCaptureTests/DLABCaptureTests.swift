@@ -141,6 +141,7 @@ final class DLABCaptureTests: XCTestCase {
 
     func testCaptureWriterDeinitCleanupReportsDiagnostics() async {
         let startExpectation = expectation(description: "deinit cleanup diagnostic emitted")
+        let timeoutExpectation = expectation(description: "deinit timeout diagnostic emitted")
         let writer = CaptureWriter()
 
         var config = CaptureWriter.CaptureWriterConfig()
@@ -150,9 +151,12 @@ final class DLABCaptureTests: XCTestCase {
             if diagnostic == .deinitWhileRecording {
                 startExpectation.fulfill()
             }
+            if diagnostic == .finishWritingTimedOut(timeoutSeconds: 1.5) {
+                timeoutExpectation.fulfill()
+            }
         }
-        writer.testingInvokeDeinitCleanupWithoutWriter()
+        writer.testingInvokeDeinitTimeoutPath()
 
-        await fulfillment(of: [startExpectation], timeout: 1.0)
+        await fulfillment(of: [startExpectation, timeoutExpectation], timeout: 1.0)
     }
 }

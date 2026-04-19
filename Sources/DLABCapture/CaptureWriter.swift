@@ -140,6 +140,13 @@ fileprivate final class CaptureWriterCache: @unchecked Sendable {
     }
 }
 
+private final class AssetWriterBox: @unchecked Sendable {
+    let writer: AVAssetWriter
+    init(writer: AVAssetWriter) {
+        self.writer = writer
+    }
+}
+
 private final class FinishWritingResumeState: @unchecked Sendable {
     let lock = UnfairLockBox()
     var resumed = false
@@ -259,7 +266,8 @@ actor CaptureWriter: NSObject {
             finishWritingTimeoutSecondsStorage
         }
         set {
-            let clampedValue = max(CaptureWriter.minimumFinishWritingTimeoutSeconds, newValue)
+            let sanitizedValue = newValue.isFinite ? newValue : CaptureWriter.defaultFinishWritingTimeoutSeconds
+            let clampedValue = max(CaptureWriter.minimumFinishWritingTimeoutSeconds, sanitizedValue)
             finishWritingTimeoutSecondsStorage = clampedValue
             cache.finishWritingTimeoutSeconds = clampedValue
         }
@@ -337,11 +345,10 @@ actor CaptureWriter: NSObject {
         }
     }
 
-    nonisolated internal func testingInvokeDeinitCleanupWithoutWriter() {
-        if cache.isRecording == false {
-            cache.isRecording = true
-        }
+    nonisolated internal func testingInvokeDeinitTimeoutPath() {
+        let timeoutSeconds = cache.finishWritingTimeoutSeconds
         cache.diagnosticHandler?(.deinitWhileRecording)
+        cache.diagnosticHandler?(.finishWritingTimedOut(timeoutSeconds: timeoutSeconds))
     }
     
     deinit {
@@ -357,12 +364,15 @@ actor CaptureWriter: NSObject {
     /// while recording is still active.
     nonisolated private func deinitHelper() {
         if let avAssetWriter = cache.assetWriter, cache.isRecording == true {
+            let cache = self.cache
             let avAssetWriterInputVideo = cache.assetWriterInputVideo
             let avAssetWriterInputAudio = cache.assetWriterInputAudio
             let avAssetWriterInputTimecode = cache.assetWriterInputTimecode
             let timeoutSeconds = cache.finishWritingTimeoutSeconds
+            let writerKey = ObjectIdentifier(avAssetWriter)
 
             cache.diagnosticHandler?(.deinitWhileRecording)
+            cache.retainAssetWriter(avAssetWriter)
             
             avAssetWriterInputVideo?.markAsFinished()
             avAssetWriterInputAudio?.markAsFinished()
@@ -370,11 +380,14 @@ actor CaptureWriter: NSObject {
             
             let semaphore = DispatchSemaphore(value: 0)
             avAssetWriter.finishWriting {
+                cache.releaseAssetWriter(forKey: writerKey)
                 semaphore.signal()
             }
             let waitResult = semaphore.wait(timeout: .now() + timeoutSeconds)
             if waitResult == .timedOut {
                 cache.diagnosticHandler?(.finishWritingTimedOut(timeoutSeconds: timeoutSeconds))
+                avAssetWriter.cancelWriting()
+                cache.releaseAssetWriter(forKey: writerKey)
             }
         }
     }
@@ -584,9 +597,10 @@ actor CaptureWriter: NSObject {
             let state = FinishWritingResumeState()
             let cache = self.cache
             let writerKey = ObjectIdentifier(avAssetWriter)
+            let writerBox = AssetWriterBox(writer: avAssetWriter)
             cache.retainAssetWriter(avAssetWriter)
 
-            let resume: @Sendable (Bool) -> Void = { value in
+            let settle: @Sendable (Bool, Bool) -> Void = { didFinish, shouldCancelWriting in
                 let shouldResume = state.lock.withLock {
                     if state.resumed {
                         return false
@@ -595,17 +609,20 @@ actor CaptureWriter: NSObject {
                     return true
                 }
                 if shouldResume {
-                    continuation.resume(returning: value)
+                    if shouldCancelWriting {
+                        writerBox.writer.cancelWriting()
+                    }
+                    cache.releaseAssetWriter(forKey: writerKey)
+                    continuation.resume(returning: didFinish)
                 }
             }
 
             avAssetWriter.finishWriting {
-                cache.releaseAssetWriter(forKey: writerKey)
-                resume(true)
+                settle(true, false)
             }
 
             DispatchQueue.global().asyncAfter(deadline: .now() + timeoutSeconds) {
-                resume(false)
+                settle(false, true)
             }
         }
     }
