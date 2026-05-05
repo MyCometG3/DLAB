@@ -69,8 +69,9 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         var writerPrepared: Bool = false
         var timecodeReady: Bool = false
         var lastDuration: Float64 = 0.0
+        var lastRecordedMoviePostProcessError: Error? = nil
     }
-
+    
     /// Verbose mode (debugging purpose)
     public var verbose: Bool = false
     
@@ -80,31 +81,31 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     
     private let stateLock = UnfairLockBox()
     private var runtimeState = CaptureRuntimeState()
-
+    
     private func withRuntimeState<T>(_ body: (inout CaptureRuntimeState) -> T) -> T {
         stateLock.withLock {
             body(&runtimeState)
         }
     }
-
+    
     private func runtimeStateValue<T>(_ keyPath: KeyPath<CaptureRuntimeState, T>) -> T {
         stateLock.withLock {
             runtimeState[keyPath: keyPath]
         }
     }
-
+    
     private func setRunning(_ newValue: Bool) {
         withRuntimeState { $0.running = newValue }
     }
-
+    
     private func setRecording(_ newValue: Bool) {
         withRuntimeState { $0.recording = newValue }
     }
-
+    
     private func setTimecodeReady(_ newValue: Bool) {
         withRuntimeState { $0.timecodeReady = newValue }
     }
-
+    
     /// True while capture is running
     public var running: Bool {
         runtimeStateValue(\.running)
@@ -238,7 +239,15 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     
     /// Optional. Set preferred output URL.
     public var movieURL: URL? = nil
-
+    
+    /// Optional post-save movie range normalization.
+    public var trimsRecordedMovieTimeRangeAfterRecording: Bool = false
+    public var recordedMoviePostProcessErrorHandler: (@Sendable (URL, Error) -> Void)? = nil
+    public private(set) var lastRecordedMoviePostProcessError: Error? {
+        get { runtimeStateValue(\.lastRecordedMoviePostProcessError) }
+        set { withRuntimeState { $0.lastRecordedMoviePostProcessError = newValue } }
+    }
+    
     /// Optional callback for non-fatal `CaptureWriter` diagnostics during fallback cleanup.
     public var captureWriterDiagnosticHandler: (@Sendable (CaptureWriterDiagnostic) -> Void)? = nil
     
@@ -588,6 +597,12 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                     await writer.closeSession()
                     // keep last duration
                     lastDuration = await writer.duration
+                    
+                    let writerError = await writer.internalError
+                    let outputURL = await writer.resolvedMovieURL()
+                    if shouldPostProcessRecordedMovie(writerError: writerError, outputURL: outputURL) {
+                        await postProcessRecordedMovieIfNeeded(at: outputURL!)
+                    }
                 }
                 
                 writerPrepared = (writer != nil)
@@ -821,9 +836,17 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         
         return config
     }
-
+    
     internal func testingWriterConfig(movieURL: URL?, prefix: String?) -> CaptureWriter.CaptureWriterConfig {
         makeWriterConfig(movieURL: movieURL, prefix: prefix)
+    }
+    
+    internal func testingShouldPostProcessRecordedMovie(writerError: Error?, outputURL: URL?) -> Bool {
+        shouldPostProcessRecordedMovie(writerError: writerError, outputURL: outputURL)
+    }
+    
+    internal func testingPostProcessRecordedMovieIfNeeded(at movieURL: URL) async {
+        await postProcessRecordedMovieIfNeeded(at: movieURL)
     }
     
     private func prepTimecodeHelper() {
@@ -862,6 +885,30 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         if self.verbose {
             let output = message.joined(separator: "\n")
             print(output)
+        }
+    }
+    
+    private func shouldPostProcessRecordedMovie(writerError: Error?, outputURL: URL?) -> Bool {
+        guard trimsRecordedMovieTimeRangeAfterRecording,
+              writerError == nil,
+              let outputURL,
+              outputURL.isFileURL,
+              FileManager.default.fileExists(atPath: outputURL.path) else {
+            return false
+        }
+        
+        return true
+    }
+    
+    private func postProcessRecordedMovieIfNeeded(at movieURL: URL) async {
+        lastRecordedMoviePostProcessError = nil
+        
+        do {
+            _ = try normalizeRecordedMovieTimeRange(at: movieURL)
+        } catch {
+            lastRecordedMoviePostProcessError = error
+            recordedMoviePostProcessErrorHandler?(movieURL, error)
+            printVerbose("ERROR:CaptureManager.postProcessRecordedMovieIfNeeded - \(error.localizedDescription)")
         }
     }
     
