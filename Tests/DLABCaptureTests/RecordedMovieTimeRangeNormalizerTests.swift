@@ -85,6 +85,20 @@ final class RecordedMovieTimeRangeNormalizerTests: XCTestCase {
         XCTAssertEqual(result.mediaKind, .video)
     }
 
+    func testNormalizerRejectsNonRegularFilePath() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("movie-normalizer-directory-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { TestMovieFactory.cleanup(directoryURL) }
+
+        XCTAssertThrowsError(try RecordedMovieTimeRangeNormalizer.normalizeMovie(at: directoryURL)) { error in
+            guard case let RecordedMovieTimeRangeNormalizationError.movieOpenFailed(reason) = error else {
+                return XCTFail("Expected movieOpenFailed for directory URL, got \(error)")
+            }
+            XCTAssertTrue(reason.contains("regular file"))
+        }
+    }
+
     func testNormalizerUsesEarliestStartLatestEndAcrossOverlappingVideoTracks() async throws {
         let movieURL = try await TestMovieFactory.makeMovie(
             name: "overlap-video-tracks",

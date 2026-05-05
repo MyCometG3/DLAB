@@ -2,7 +2,8 @@
 //  RecordedMovieTimeRangeNormalizer.swift
 //  DLABCapture
 //
-//  Created by GitHub Copilot on 2026/05/05.
+//  Created by Takashi Mochizuki on 2026/05/05.
+//  Copyright © 2026 MyCometG3. All rights reserved.
 //
 
 import Foundation
@@ -104,7 +105,7 @@ internal enum RecordedMovieTimeRangeNormalizer {
             throw RecordedMovieTimeRangeNormalizationError.movieOpenFailed("\(movieURL.path): \(error.localizedDescription)")
         }
         
-        guard resourceValues.isRegularFile != false else {
+        guard resourceValues.isRegularFile == true else {
             throw RecordedMovieTimeRangeNormalizationError.movieOpenFailed("Path is not a regular file: \(movieURL.path)")
         }
         
@@ -227,12 +228,41 @@ internal enum RecordedMovieTimeRangeNormalizer {
     }
     
     private static func commit(movie: AVMutableMovie, to originalURL: URL) throws {
+        let fileManager = FileManager.default
+        let temporaryFilename = "\(originalURL.deletingPathExtension().lastPathComponent)-normalize-\(UUID().uuidString).mov"
+        let temporaryURL = originalURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(temporaryFilename)
+
         do {
-            try movie.writeHeader(to: originalURL,
+            try fileManager.copyItem(at: originalURL, to: temporaryURL)
+        } catch {
+            throw RecordedMovieTimeRangeNormalizationError.movieHeaderWriteFailed("Failed to prepare temporary movie file for \(originalURL.path): \(error.localizedDescription)")
+        }
+
+        var shouldCleanupTemp = true
+        defer {
+            if shouldCleanupTemp {
+                try? fileManager.removeItem(at: temporaryURL)
+            }
+        }
+
+        do {
+            try movie.writeHeader(to: temporaryURL,
                                   fileType: .mov,
                                   options: .addMovieHeaderToDestination)
         } catch {
             throw RecordedMovieTimeRangeNormalizationError.movieHeaderWriteFailed("\(originalURL.path): \(error.localizedDescription)")
+        }
+
+        do {
+            _ = try fileManager.replaceItemAt(originalURL,
+                                              withItemAt: temporaryURL,
+                                              backupItemName: nil,
+                                              options: [])
+            shouldCleanupTemp = false
+        } catch {
+            throw RecordedMovieTimeRangeNormalizationError.movieHeaderWriteFailed("Failed to replace \(originalURL.path) with normalized movie header: \(error.localizedDescription)")
         }
     }
 }
