@@ -198,6 +198,23 @@ final class RecordedMovieTimeRangeNormalizerTests: XCTestCase {
         await fulfillment(of: [callbackExpectation], timeout: 1.0)
     }
 
+    func testCaptureManagerSkippedPostProcessClearsStaleError() async throws {
+        let manager = CaptureManager()
+        manager.trimsRecordedMovieTimeRangeAfterRecording = true
+
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("missing-\(UUID().uuidString).mov")
+        await manager.testingPostProcessRecordedMovieIfNeeded(at: missingURL)
+        XCTAssertNotNil(manager.lastRecordedMoviePostProcessError)
+
+        await manager.testingHandleRecordedMoviePostProcess(
+            writerError: NSError(domain: "DLABCaptureTests", code: 2),
+            outputURL: nil
+        )
+
+        XCTAssertNil(manager.lastRecordedMoviePostProcessError)
+    }
+
     func testCaptureWriterResolvedMovieURLReturnsGeneratedURLAfterOpenSession() async throws {
         let writer = CaptureWriter()
         var config = CaptureWriter.CaptureWriterConfig()

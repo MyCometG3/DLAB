@@ -600,9 +600,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                     
                     let writerError = await writer.internalError
                     let outputURL = await writer.resolvedMovieURL()
-                    if shouldPostProcessRecordedMovie(writerError: writerError, outputURL: outputURL) {
-                        await postProcessRecordedMovieIfNeeded(at: outputURL!)
-                    }
+                    await handleRecordedMoviePostProcess(writerError: writerError, outputURL: outputURL)
                 }
                 
                 writerPrepared = (writer != nil)
@@ -844,7 +842,11 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     internal func testingShouldPostProcessRecordedMovie(writerError: Error?, outputURL: URL?) -> Bool {
         shouldPostProcessRecordedMovie(writerError: writerError, outputURL: outputURL)
     }
-    
+
+    internal func testingHandleRecordedMoviePostProcess(writerError: Error?, outputURL: URL?) async {
+        await handleRecordedMoviePostProcess(writerError: writerError, outputURL: outputURL)
+    }
+
     internal func testingPostProcessRecordedMovieIfNeeded(at movieURL: URL) async {
         await postProcessRecordedMovieIfNeeded(at: movieURL)
     }
@@ -898,6 +900,17 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         }
         
         return true
+    }
+
+    private func handleRecordedMoviePostProcess(writerError: Error?, outputURL: URL?) async {
+        lastRecordedMoviePostProcessError = nil
+
+        guard let outputURL,
+              shouldPostProcessRecordedMovie(writerError: writerError, outputURL: outputURL) else {
+            return
+        }
+
+        await postProcessRecordedMovieIfNeeded(at: outputURL)
     }
     
     private func postProcessRecordedMovieIfNeeded(at movieURL: URL) async {

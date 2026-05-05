@@ -57,7 +57,7 @@ extension CaptureWriter {
      * This function remaps the channel order of the input LPCM Audio SampleBuffer.
      * The framework supposes the native HDMI Audio layout as MPEG_7_1_A (L R C LFE Ls Rs Lc Rc).
      * With Reverse34 enabled, Channel C,LFE order is swapped as LFE,C.
-     * Followings shows how channel remapping works from HDMI layout into AAC Layout.
+     * The following shows how channel remapping works from HDMI layout into AAC Layout.
      *
      * ### 3ch Audio
      *                 0 1 2 3 4 5 6 7
