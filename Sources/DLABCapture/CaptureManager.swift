@@ -103,9 +103,26 @@ private final class BoundedWorkQueue: @unchecked Sendable {
 }
 
 /// Extension to make CaptureManager conform to Sendable for cross-actor usage.
-/// Note: This is marked as @unchecked because CaptureManager contains non-Sendable
-/// properties, but the class is designed to be used safely across actor boundaries
-/// through careful state management and synchronization.
+///
+/// Concurrency model — mutable state falls into these categories:
+///
+/// - Lock-protected runtime state: managed via ``UnfairLockBox`` and
+///   ``CaptureRuntimeState`` (e.g. running, recording, timecodeReady).
+/// - Set-before-capture configuration: audio/video/encoder parameters
+///   expected to be configured before ``captureStartAsync()`` and not
+///   mutated concurrently during capture.
+/// - UI / MainActor references: ``videoPreview`` and ``parentView`` are
+///   weak and expected to be read/written on the main thread / actor.
+/// - Callback references: ``inputAncillaryPacketHandler``,
+///   ``recordedMoviePostProcessErrorHandler``, and
+///   ``captureWriterDiagnosticHandler`` are controlled-mutation
+///   callbacks.
+/// - Backpressure / queue state: ``BoundedWorkQueue`` instances are
+///   lock-protected and shared between callback threads and persistent
+///   processor ``Task``s.
+///
+/// Marked `@unchecked Sendable` because the class contains non-Sendable
+/// stored properties whose safety is guaranteed by these conventions.
 extension CaptureManager: @unchecked Sendable {
 }
 
@@ -135,7 +152,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     private var videoProcessorTask: Task<Void, Never>?
     
     /* ============================================ */
-    // MARK: - properties - Capturing
+    // MARK: - properties - Lock-protected runtime state
     /* ============================================ */
     
     private let stateLock = UnfairLockBox()
@@ -164,7 +181,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         set { withRuntimeState { $0.currentDevice = newValue } }
     }
     /* ============================================ */
-    // MARK: - properties - Capturing audio
+    // MARK: - properties - Capturing audio (set before capture)
     /* ============================================ */
     
     /// Capture audio bit depth (See DLABConstants.h)
@@ -230,7 +247,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         }
     }
     /* ============================================ */
-    // MARK: - properties - Capturing video
+    // MARK: - properties - Capturing video (set before capture)
     /* ============================================ */
     
     /// Capture video DLABDisplayMode. (See DLABConstants.h)
@@ -255,10 +272,12 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         get { runtimeStateValue(\.videoCaptureEnabled) }
         set { withRuntimeState { $0.videoCaptureEnabled = newValue } }
     }
-    /// Set CaptureVideoPreview view here - based on AVSampleBufferDisplayLayer
+    /// Set CaptureVideoPreview view here - based on AVSampleBufferDisplayLayer.
+    /// Expected to be read/written on the `@MainActor`.
     public weak var videoPreview: CaptureVideoPreview? = nil
     
-    /// Parent NSView for video preview - based on CreateCocoaScreenPreview()
+    /// Parent NSView for video preview - based on CreateCocoaScreenPreview().
+    /// Expected to be read/written on the `@MainActor`.
     public weak var parentView: NSView? = nil {
         didSet {
             Task { @MainActor in
@@ -417,7 +436,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     public var updateVideoSettings : (@Sendable ([String:Any]) -> [String:Any])? = nil
     
     /* ============================================ */
-    // MARK: - properties - Recording timecode
+    // MARK: - properties - Recording timecode (set before capture)
     /* ============================================ */
     
     /// True if input provides timecode data
@@ -441,10 +460,10 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     private func clearTimecodeHelper() {
         timecodeHelperLock.withLock { timecodeHelperStorage = nil }
     }
-    /// Timecode format type (timecode
+    /// Timecode format type. Set before ``captureStartAsync()``.
     public var timecodeFormatType : CMTimeCodeFormatType = kCMTimeCodeFormatType_TimeCode32
     
-    /// Validate if source provides timecode of specified type. Set before captureStart().
+    /// Validate if source provides timecode of specified type. Set before ``captureStartAsync()``.
     public var timecodeSource :TimecodeType? = nil
     
     /* ============================================ */
@@ -453,6 +472,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     
     /// Input ancillary packet callback. Use `dataSpace` to distinguish VANC and HANC packets.
     /// This is the preferred wrapper API for SDK 15.3+ ancillary packet capture.
+    /// Set before or during capture; `didSet` immediately applies to the current device.
     public var inputAncillaryPacketHandler: InputAncillaryPacketHandler? = nil {
         didSet {
             if let device = currentDevice {
