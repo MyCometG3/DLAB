@@ -54,6 +54,54 @@ public enum TimecodeType: Int, Sendable {
     }
 }
 
+// MARK: - Bounded Sample Processing Queue
+
+/// A lock-protected bounded work queue for callback-driven sample processing.
+///
+/// Each lane (audio, video) gets its own queue instance.  `maxDepth` is a hard
+/// limit — when the queue is full, `enqueue` returns `false` and the caller
+/// drops the sample.  This prevents unbounded task creation and memory growth
+/// under sustained overload.
+///
+/// Work is drained in FIFO batches: items within a single batch are processed
+/// in enqueue order, but a new batch may include items that arrived while the
+/// previous batch was executing.  Ordering across batch boundaries is still
+/// FIFO, so the net effect is FIFO within each lane.
+///
+/// Queued closures capture `self` weakly; work may be silently dropped during
+/// teardown / deinit when the `CaptureManager` is no longer alive.
+private final class BoundedWorkQueue: @unchecked Sendable {
+    private let lock = UnfairLockBox()
+    private var items: [@Sendable () async -> Void] = []
+    let maxDepth: Int
+    
+    init(maxDepth: Int) {
+        self.maxDepth = maxDepth
+    }
+    
+    /// Attempt to enqueue a work item.
+    ///
+    /// Returns `true` on success.  Returns `false` when the queue is full;
+    /// the caller should drop the sample.  Never blocks.
+    func enqueue(_ work: @escaping @Sendable () async -> Void) -> Bool {
+        lock.withLock {
+            guard items.count < maxDepth else { return false }
+            items.append(work)
+            return true
+        }
+    }
+    
+    /// Atomically drain all queued items.
+    func takeAll() -> [@Sendable () async -> Void] {
+        lock.withLock {
+            guard !items.isEmpty else { return [] }
+            let result = items
+            items = []
+            return result
+        }
+    }
+}
+
 /// Extension to make CaptureManager conform to Sendable for cross-actor usage.
 /// Note: This is marked as @unchecked because CaptureManager contains non-Sendable
 /// properties, but the class is designed to be used safely across actor boundaries
@@ -76,6 +124,15 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     
     /// Verbose mode (debugging purpose)
     public var verbose: Bool = false
+    
+    /* ============================================ */
+    // MARK: - properties - Sample processing backpressure
+    /* ============================================ */
+    
+    private let audioQueue = BoundedWorkQueue(maxDepth: 4)
+    private let videoQueue = BoundedWorkQueue(maxDepth: 4)
+    private var audioProcessorTask: Task<Void, Never>?
+    private var videoProcessorTask: Task<Void, Never>?
     
     /* ============================================ */
     // MARK: - properties - Capturing
@@ -412,6 +469,34 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         super.init()
         
         // print("CaptureManager.\(#function)")
+        
+        // NOTE: idle wakeup uses Task.yield(); a future refinement could
+        // use a continuation-based signal instead of a spin-yield loop.
+        audioProcessorTask = Task(priority: .high) { [audioQueue] in
+            while !Task.isCancelled {
+                let batch = audioQueue.takeAll()
+                if batch.isEmpty {
+                    await Task.yield()
+                    continue
+                }
+                for work in batch {
+                    await work()
+                }
+            }
+        }
+        
+        videoProcessorTask = Task(priority: .high) { [videoQueue] in
+            while !Task.isCancelled {
+                let batch = videoQueue.takeAll()
+                if batch.isEmpty {
+                    await Task.yield()
+                    continue
+                }
+                for work in batch {
+                    await work()
+                }
+            }
+        }
     }
     
     deinit {
@@ -741,6 +826,9 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     
     /// deinit helper method for cleanup.
     private func detachedCleanup() {
+        audioProcessorTask?.cancel()
+        videoProcessorTask?.cancel()
+        
         // Copy actor isolated properties to nonisolated variables
         let verbose = self.verbose
         
@@ -965,8 +1053,12 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     public nonisolated func processCapturedAudioSample(_ sampleBuffer: CMSampleBuffer,
                                                        of sender:DLABDevice) {
         let info = UnsafeSampleBufferInfo(sampleBuffer: sampleBuffer, setting: nil)
-        Task(priority: .high) {
-            await processCapturedAudioSampleAsync(info)
+        let enqueued = audioQueue.enqueue { [weak self] in
+            await self?.processCapturedAudioSampleAsync(info)
+        }
+        if !enqueued {
+            // Audio queue full — drop sample under backpressure.
+            // Also implicitly dropped during teardown when self is nil.
         }
     }
     
@@ -977,8 +1069,12 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     public nonisolated func processCapturedVideoSample(_ sampleBuffer: CMSampleBuffer,
                                                        of sender:DLABDevice) {
         let info = UnsafeSampleBufferInfo(sampleBuffer: sampleBuffer, setting: nil)
-        Task(priority: .high) {
-            await processCapturedVideoSampleAsync(info)
+        let enqueued = videoQueue.enqueue { [weak self] in
+            await self?.processCapturedVideoSampleAsync(info)
+        }
+        if !enqueued {
+            // Video queue full — drop sample under backpressure.
+            // Also implicitly dropped during teardown when self is nil.
         }
     }
     
@@ -991,8 +1087,12 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                                                        timecodeSetting setting: DLABTimecodeSetting,
                                                        of sender:DLABDevice) {
         let info = UnsafeSampleBufferInfo(sampleBuffer: sampleBuffer, setting: setting)
-        Task(priority: .high) {
-            await processCapturedVideoSampleAsync(info)
+        let enqueued = videoQueue.enqueue { [weak self] in
+            await self?.processCapturedVideoSampleAsync(info)
+        }
+        if !enqueued {
+            // Video queue full — drop sample under backpressure.
+            // Also implicitly dropped during teardown when self is nil.
         }
     }
     
