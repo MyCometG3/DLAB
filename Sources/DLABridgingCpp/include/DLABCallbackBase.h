@@ -9,6 +9,7 @@
 #pragma once
 
 #import <Foundation/Foundation.h>
+#import <cstdint>
 #import <atomic>
 
 /// CRTP base for COM callback classes that share the same pattern:
@@ -20,17 +21,17 @@ template <typename Derived, typename DelegateT>
 class DLABCallbackBase {
 protected:
     __weak DelegateT delegate;
-    std::atomic<ULONG> refCount{1};
+    std::atomic<uint32_t> refCount{1};
     
 public:
     explicit DLABCallbackBase(DelegateT delegate) : delegate(delegate) {}
     
-    ULONG AddRef() {
+    uint32_t AddRef() {
         return ++refCount;
     }
     
-    ULONG Release() {
-        ULONG newRefValue = --refCount;
+    uint32_t Release() {
+        uint32_t newRefValue = --refCount;
         if (newRefValue == 0) {
             delete static_cast<Derived *>(this);
             return 0;

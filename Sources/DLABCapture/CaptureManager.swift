@@ -1072,6 +1072,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     ///   - sender: DLABDevice
     public nonisolated func processCapturedAudioSample(_ sampleBuffer: CMSampleBuffer,
                                                        of sender:DLABDevice) {
+        guard sender === currentDevice, running else { return }
         let info = UnsafeSampleBufferInfo(sampleBuffer: sampleBuffer, setting: nil)
         let enqueued = audioQueue.enqueue { [weak self] in
             await self?.processCapturedAudioSampleAsync(info)
@@ -1088,6 +1089,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     ///   - sender: DLABDevice
     public nonisolated func processCapturedVideoSample(_ sampleBuffer: CMSampleBuffer,
                                                        of sender:DLABDevice) {
+        guard sender === currentDevice, running else { return }
         let info = UnsafeSampleBufferInfo(sampleBuffer: sampleBuffer, setting: nil)
         let enqueued = videoQueue.enqueue { [weak self] in
             await self?.processCapturedVideoSampleAsync(info)
@@ -1106,6 +1108,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     public nonisolated func processCapturedVideoSample(_ sampleBuffer: CMSampleBuffer,
                                                        timecodeSetting setting: DLABTimecodeSetting,
                                                        of sender:DLABDevice) {
+        guard sender === currentDevice, running else { return }
         let info = UnsafeSampleBufferInfo(sampleBuffer: sampleBuffer, setting: setting)
         let enqueued = videoQueue.enqueue { [weak self] in
             await self?.processCapturedVideoSampleAsync(info)

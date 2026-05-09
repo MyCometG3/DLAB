@@ -36,29 +36,25 @@ internal final class VideoSampleBufferHelper: @unchecked Sendable {
     private let poolLock = UnfairLockBox()
     private var pixelBufferPoolStorage: CVPixelBufferPool? = nil
     
-    private func resolvePixelBufferPool(with dict: CFDictionary) -> CVPixelBufferPool? {
-        poolLock.withLock {
-            let pool = pixelBufferPoolStorage
-            guard let pool, let pbAttr = CVPixelBufferPoolGetPixelBufferAttributes(pool) else {
-                return nil
-            }
-            let typeOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferPixelFormatTypeKey)
-            let widthOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferWidthKey)
-            let heightOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferHeightKey)
-            let strideOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferBytesPerRowAlignmentKey)
-            if typeOK && widthOK && heightOK && strideOK {
-                return pool
-            }
-            CVPixelBufferPoolFlush(pool, .excessBuffers)
-            pixelBufferPoolStorage = nil
-            return nil
+    private func matchesPixelBufferPool(_ pool: CVPixelBufferPool, with dict: CFDictionary) -> Bool {
+        guard let pbAttr = CVPixelBufferPoolGetPixelBufferAttributes(pool) else {
+            return false
         }
+        let typeOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferPixelFormatTypeKey)
+        let widthOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferWidthKey)
+        let heightOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferHeightKey)
+        let strideOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferBytesPerRowAlignmentKey)
+        return typeOK && widthOK && heightOK && strideOK
     }
     
-    private func createPixelBufferPool(with dict: CFDictionary) -> CVPixelBufferPool {
+    private func getOrCreatePixelBufferPool(with dict: CFDictionary) -> CVPixelBufferPool {
         poolLock.withLock {
             if let pool = pixelBufferPoolStorage {
-                return pool
+                if matchesPixelBufferPool(pool, with: dict) {
+                    return pool
+                }
+                CVPixelBufferPoolFlush(pool, .excessBuffers)
+                pixelBufferPoolStorage = nil
             }
             let poolAttr = [kCVPixelBufferPoolMinimumBufferCountKey: 4 as CFNumber] as CFDictionary
             let err = CVPixelBufferPoolCreate(kCFAllocatorDefault, poolAttr, dict, &pixelBufferPoolStorage)
@@ -167,9 +163,7 @@ internal final class VideoSampleBufferHelper: @unchecked Sendable {
             kCVPixelBufferIOSurfacePropertiesKey: [:] as [CFString : Any],
         ] as [CFString : Any] as CFDictionary
         
-        if resolvePixelBufferPool(with: dict) == nil {
-            _ = createPixelBufferPool(with: dict)
-        }
+        _ = getOrCreatePixelBufferPool(with: dict)
         
         pbOut = takePixelBuffer()
         

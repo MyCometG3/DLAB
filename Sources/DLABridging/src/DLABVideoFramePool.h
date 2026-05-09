@@ -25,8 +25,8 @@
 - (BOOL)prepareWithOutput:(IDeckLinkOutput * _Nonnull)output
                   setting:(DLABVideoSetting * _Nonnull)setting;
 
-/// Reserve a frame from the idle set.  Returns nil when no frame
-/// is available even after expansion.
+/// Reserve a frame from the idle set. Call `prepareWithOutput:setting:`
+/// first; returns nil when no prepared idle frame is available.
 - (nullable IDeckLinkMutableVideoFrame *)reserveFrame;
 
 /// Return a previously reserved frame to the idle set.
