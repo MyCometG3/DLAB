@@ -340,6 +340,16 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @property (nonatomic, assign) BOOL needsInputVideoConfigurationRefresh;
 
+/**
+ Tracks whether bmdStatusChanged is currently subscribed.
+ */
+@property (nonatomic, assign) BOOL statusChangeNotificationSubscribed;
+
+/**
+ Tracks whether bmdPreferencesChanged is currently subscribed.
+ */
+@property (nonatomic, assign) BOOL prefsChangeNotificationSubscribed;
+
 //
 
 /**

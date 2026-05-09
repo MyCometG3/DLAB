@@ -321,12 +321,16 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
         _profileCallback = NULL;
     }
     if (_prefsChangeCallback) {
-        [self subscribePrefsChangeNotification:NO];
+        if (_prefsChangeNotificationSubscribed) {
+            [self subscribePrefsChangeNotification:NO];
+        }
         _prefsChangeCallback->Release();
         _prefsChangeCallback = NULL;
     }
     if (_statusChangeCallback) {
-        [self subscribeStatusChangeNotification:NO];
+        if (_statusChangeNotificationSubscribed) {
+            [self subscribeStatusChangeNotification:NO];
+        }
         _statusChangeCallback->Release();
         _statusChangeCallback = NULL;
     }
@@ -507,6 +511,8 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
 @synthesize inputPreviewCallback = _inputPreviewCallback;
 
 @synthesize needsInputVideoConfigurationRefresh = _needsInputVideoConfigurationRefresh;
+@synthesize statusChangeNotificationSubscribed = _statusChangeNotificationSubscribed;
+@synthesize prefsChangeNotificationSubscribed = _prefsChangeNotificationSubscribed;
 @synthesize inputVideoConverter = _inputVideoConverter;
 @synthesize outputVideoConverter = _outputVideoConverter;
 
@@ -684,11 +690,15 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
         result = notification->Subscribe(bmdStatusChanged, callback);
         if (result) {
             NSLog(@"ERROR: IDeckLinkNotification::Subscribe failed.");
+        } else {
+            self.statusChangeNotificationSubscribed = YES;
         }
     } else {
         result = notification->Unsubscribe(bmdStatusChanged, callback);
         if (result) {
             NSLog(@"ERROR: IDeckLinkNotification::Unsubscribe failed.");
+        } else {
+            self.statusChangeNotificationSubscribed = NO;
         }
     }
     return (result == S_OK);
@@ -705,11 +715,15 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
         result = notification->Subscribe(bmdPreferencesChanged, callback);
         if (result) {
             NSLog(@"ERROR: IDeckLinkNotification::Subscribe failed.");
+        } else {
+            self.prefsChangeNotificationSubscribed = YES;
         }
     } else {
         result = notification->Unsubscribe(bmdPreferencesChanged, callback);
         if (result) {
             NSLog(@"ERROR: IDeckLinkNotification::Unsubscribe failed.");
+        } else {
+            self.prefsChangeNotificationSubscribed = NO;
         }
     }
     return (result == S_OK);
