@@ -21,14 +21,14 @@ class DLABCallbackBase {
 protected:
     __weak DelegateT delegate;
     std::atomic<ULONG> refCount{1};
-
+    
 public:
     explicit DLABCallbackBase(DelegateT delegate) : delegate(delegate) {}
-
+    
     ULONG AddRef() {
         return ++refCount;
     }
-
+    
     ULONG Release() {
         ULONG newRefValue = --refCount;
         if (newRefValue == 0) {

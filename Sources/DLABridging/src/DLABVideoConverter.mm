@@ -1408,16 +1408,16 @@ void endianRGB12U_L2B(vImage_Buffer *buffer) {
                 if (fillErr == kvImageNoError) fillErr = fillCVConversionMatrix(outFormat, matrixToYpCbCrFor(dlWidth, dlHeight));
                 if (fillErr != kvImageNoError) errCGtoCV = fillErr;
                 else {
-                vImage_Flags flags = kvImageNoFlags; // kvImagePrintDiagnosticsToConsole
-                CGFloat bgColor[3] = {0,0,0};
-                convCGtoCV = vImageConverter_CreateForCGToCVImageFormat(&interimFormat,
-                                                                        outFormat,
-                                                                        bgColor,
-                                                                        flags,
-                                                                        &errCGtoCV);
-                if (errCGtoCV || !convCGtoCV) {
-                    NSLog(@"ERROR: vImageConverter_CreateForCGToCVImageFormat() failed.(%ld)", errCGtoCV);
-                }
+                    vImage_Flags flags = kvImageNoFlags; // kvImagePrintDiagnosticsToConsole
+                    CGFloat bgColor[3] = {0,0,0};
+                    convCGtoCV = vImageConverter_CreateForCGToCVImageFormat(&interimFormat,
+                                                                            outFormat,
+                                                                            bgColor,
+                                                                            flags,
+                                                                            &errCGtoCV);
+                    if (errCGtoCV || !convCGtoCV) {
+                        NSLog(@"ERROR: vImageConverter_CreateForCGToCVImageFormat() failed.(%ld)", errCGtoCV);
+                    }
                 }
                 vImageCVImageFormat_Release(outFormat);
                 
@@ -1733,16 +1733,16 @@ void endianRGB12U_L2B(vImage_Buffer *buffer) {
                 if (fillErr == kvImageNoError) fillErr = fillCVConversionMatrix(inFormat, matrixToYpCbCrFor(dlWidth, dlHeight));
                 if (fillErr != kvImageNoError) errCVtoCG = fillErr;
                 else {
-                vImage_Flags flags = kvImageNoFlags; // kvImagePrintDiagnosticsToConsole
-                CGFloat bgColor[3] = {0,0,0};
-                convCVtoCG = vImageConverter_CreateForCVToCGImageFormat(inFormat,
-                                                                        &interimFormat,
-                                                                        bgColor,
-                                                                        flags,
-                                                                        &errCVtoCG);
-                if (errCVtoCG || !convCVtoCG) {
-                    NSLog(@"ERROR: vImageConverter_CreateForCVToCGImageFormat() failed.(%ld)", errCVtoCG);
-                }
+                    vImage_Flags flags = kvImageNoFlags; // kvImagePrintDiagnosticsToConsole
+                    CGFloat bgColor[3] = {0,0,0};
+                    convCVtoCG = vImageConverter_CreateForCVToCGImageFormat(inFormat,
+                                                                            &interimFormat,
+                                                                            bgColor,
+                                                                            flags,
+                                                                            &errCVtoCG);
+                    if (errCVtoCG || !convCVtoCG) {
+                        NSLog(@"ERROR: vImageConverter_CreateForCVToCGImageFormat() failed.(%ld)", errCVtoCG);
+                    }
                 }
                 vImageCVImageFormat_Release(inFormat);
                 

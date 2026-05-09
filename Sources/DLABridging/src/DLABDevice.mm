@@ -817,8 +817,8 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
 /* =================================================================================== */
 
 - (void) updateSubscriptionFrom:(id)oldValue
-                           to:(id)newValue
-                        block:(BOOL(^)(BOOL))subscribeBlock
+                             to:(id)newValue
+                          block:(BOOL(^)(BOOL))subscribeBlock
 {
     if (oldValue) {
         subscribeBlock(NO);

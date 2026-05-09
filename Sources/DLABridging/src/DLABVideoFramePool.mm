@@ -44,7 +44,7 @@ static const int kMaxOutputVideoFrameCount = 8;
         @synchronized (self) {
             BOOL initialSetup = (_frameSet.count == 0);
             int expandingUnit = initialSetup ? 4 : 2;
-
+            
             BOOL needsExpansion = (_idleSet.count == 0);
             if (needsExpansion) {
                 int32_t width = (int32_t)setting.width;
@@ -52,16 +52,16 @@ static const int kMaxOutputVideoFrameCount = 8;
                 int32_t rowBytes = (int32_t)setting.rowBytes;
                 BMDPixelFormat pixelFormat = setting.pixelFormat;
                 BMDFrameFlags flags = setting.outputFlag;
-
+                
                 for (int i = 0; i < expandingUnit; i++) {
                     BOOL poolIsFull = (_frameSet.count >= kMaxOutputVideoFrameCount);
                     if (poolIsFull) break;
-
+                    
                     IDeckLinkMutableVideoFrame *outFrame = NULL;
                     result = output->CreateVideoFrame(width, height, rowBytes,
                                                       pixelFormat, flags, &outFrame);
                     if (result) break;
-
+                    
                     NSValue* ptrValue = [NSValue valueWithPointer:(void*)outFrame];
                     [_frameSet addObject:ptrValue];
                     [_idleSet addObject:ptrValue];
