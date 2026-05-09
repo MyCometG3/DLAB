@@ -537,7 +537,7 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
          code:(NSInteger)result
            to:(NSError**)error;
 {
-    return DLABAssignError(error, description, failureReason, (NSInteger)result);
+    return DLABPostError(error, description, failureReason, result);
 }
 
 /* =================================================================================== */
