@@ -98,89 +98,96 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
 
 - (void) validate
 {
-    HRESULT error = E_FAIL;
-    
-    // Validate support feature (capture/playback)
     BOOL supportsCapture = FALSE;
     BOOL supportsPlayback = FALSE;
-    {
-        int64_t support = 0;
-        error = _deckLinkProfileAttributes->GetInt(BMDDeckLinkVideoIOSupport, &support);
-        if (!error) {
-            supportsCapture = (support & bmdDeviceSupportsCapture);
-            supportsPlayback = (support & bmdDeviceSupportsPlayback);
+    
+    [self validateVideoIOSupport:&supportsCapture playback:&supportsPlayback];
+    [self validateOptionalInterfacesForCaptureSupport:&supportsCapture playbackSupport:&supportsPlayback];
+    [self updateSupportFlagsFromCaptureSupport:supportsCapture playbackSupport:supportsPlayback];
+    [self loadStaticDeviceAttributes];
+}
+
+- (void) validateVideoIOSupport:(BOOL *)supportsCapture
+                       playback:(BOOL *)supportsPlayback
+{
+    int64_t support = 0;
+    HRESULT error = _deckLinkProfileAttributes->GetInt(BMDDeckLinkVideoIOSupport, &support);
+    *supportsCapture = FALSE;
+    *supportsPlayback = FALSE;
+    if (!error) {
+        *supportsCapture = (support & bmdDeviceSupportsCapture);
+        *supportsPlayback = (support & bmdDeviceSupportsPlayback);
+    }
+}
+
+- (void) validateOptionalInterfacesForCaptureSupport:(BOOL *)supportsCapture
+                                     playbackSupport:(BOOL *)supportsPlayback
+{
+    HRESULT error = E_FAIL;
+    
+    if (!_deckLinkInput && *supportsCapture) {
+        error = DLABQueryInterfaceAny(_deckLink, &_deckLinkInput,
+                                      IID_IDeckLinkInput,
+                                      IID_IDeckLinkInput_v15_3_1,
+                                      IID_IDeckLinkInput_v14_2_1,
+                                      IID_IDeckLinkInput_v11_5_1,
+                                      IID_IDeckLinkInput_v11_4);
+        if (error) {
+            if (_deckLinkInput) _deckLinkInput->Release();
+            _deckLinkInput = NULL;
+            *supportsCapture = FALSE;
         }
     }
     
-    // Optional c++ objects
-    {
-        // Validate support feature (Capture)
-        if (!_deckLinkInput && supportsCapture) {
-            error = DLABQueryInterfaceAny(_deckLink, &_deckLinkInput,
-                                          IID_IDeckLinkInput,
-                                          IID_IDeckLinkInput_v15_3_1,
-                                          IID_IDeckLinkInput_v14_2_1,
-                                          IID_IDeckLinkInput_v11_5_1,
-                                          IID_IDeckLinkInput_v11_4);
-            if (error) {
-                if (_deckLinkInput) _deckLinkInput->Release();
-                _deckLinkInput = NULL;
-                supportsCapture = FALSE;
-            }
-        }
-        
-        // Validate support feature (Playback)
-        if (!_deckLinkOutput && supportsPlayback) {
-            error = DLABQueryInterfaceAny(_deckLink, &_deckLinkOutput,
-                                          IID_IDeckLinkOutput,
-                                          IID_IDeckLinkOutput_v15_3_1,
-                                          IID_IDeckLinkOutput_v14_2_1,
-                                          IID_IDeckLinkOutput_v11_4);
-            if (error) {
-                if (_deckLinkOutput) _deckLinkOutput->Release();
-                _deckLinkOutput = NULL;
-                supportsPlayback = FALSE;
-            }
-        }
-        
-        // Validate HDMIInputEDID support (optional)
-        if (!_deckLinkHDMIInputEDID && supportsCapture) {
-            error = _deckLink->QueryInterface(IID_IDeckLinkHDMIInputEDID, (void **)&_deckLinkHDMIInputEDID);
-            if (error) {
-                if (_deckLinkHDMIInputEDID) _deckLinkHDMIInputEDID->Release();
-                _deckLinkHDMIInputEDID = NULL;
-            }
-        }
-        
-        // Validate Keyer support (optional)
-        if (!_deckLinkKeyer && supportsPlayback) {
-            error = _deckLink->QueryInterface(IID_IDeckLinkKeyer, (void **)&_deckLinkKeyer);
-            if (error) {
-                if (_deckLinkKeyer) _deckLinkKeyer->Release();
-                _deckLinkKeyer = NULL;
-            }
-        }
-        
-        // Validate Profile support (optional)
-        if (!_deckLinkProfileManager) {
-            error = _deckLink->QueryInterface(IID_IDeckLinkProfileManager, (void **)&_deckLinkProfileManager);
-            if (error) {
-                if (_deckLinkProfileManager) _deckLinkProfileManager->Release();
-                _deckLinkProfileManager = NULL;
-            }
-        }
-        
-        // Validate Statistics support (optional)
-        if (!_deckLinkStatistics) {
-            error = _deckLink->QueryInterface(IID_IDeckLinkStatistics, (void **)&_deckLinkStatistics);
-            if (error) {
-                if (_deckLinkStatistics) _deckLinkStatistics->Release();
-                _deckLinkStatistics = NULL;
-            }
+    if (!_deckLinkOutput && *supportsPlayback) {
+        error = DLABQueryInterfaceAny(_deckLink, &_deckLinkOutput,
+                                      IID_IDeckLinkOutput,
+                                      IID_IDeckLinkOutput_v15_3_1,
+                                      IID_IDeckLinkOutput_v14_2_1,
+                                      IID_IDeckLinkOutput_v11_4);
+        if (error) {
+            if (_deckLinkOutput) _deckLinkOutput->Release();
+            _deckLinkOutput = NULL;
+            *supportsPlayback = FALSE;
         }
     }
     
-    // Validate support feature
+    if (!_deckLinkHDMIInputEDID && *supportsCapture) {
+        error = _deckLink->QueryInterface(IID_IDeckLinkHDMIInputEDID, (void **)&_deckLinkHDMIInputEDID);
+        if (error) {
+            if (_deckLinkHDMIInputEDID) _deckLinkHDMIInputEDID->Release();
+            _deckLinkHDMIInputEDID = NULL;
+        }
+    }
+    
+    if (!_deckLinkKeyer && *supportsPlayback) {
+        error = _deckLink->QueryInterface(IID_IDeckLinkKeyer, (void **)&_deckLinkKeyer);
+        if (error) {
+            if (_deckLinkKeyer) _deckLinkKeyer->Release();
+            _deckLinkKeyer = NULL;
+        }
+    }
+    
+    if (!_deckLinkProfileManager) {
+        error = _deckLink->QueryInterface(IID_IDeckLinkProfileManager, (void **)&_deckLinkProfileManager);
+        if (error) {
+            if (_deckLinkProfileManager) _deckLinkProfileManager->Release();
+            _deckLinkProfileManager = NULL;
+        }
+    }
+    
+    if (!_deckLinkStatistics) {
+        error = _deckLink->QueryInterface(IID_IDeckLinkStatistics, (void **)&_deckLinkStatistics);
+        if (error) {
+            if (_deckLinkStatistics) _deckLinkStatistics->Release();
+            _deckLinkStatistics = NULL;
+        }
+    }
+}
+
+- (void) updateSupportFlagsFromCaptureSupport:(BOOL)supportsCapture
+                              playbackSupport:(BOOL)supportsPlayback
+{
     _supportFlag = DLABVideoIOSupportNone;
     _supportCapture = FALSE;
     _supportPlayback = FALSE;
@@ -195,6 +202,7 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
         _supportPlayback = TRUE;
     }
     if (_deckLinkKeyer) {
+        HRESULT error = E_FAIL;
         bool keyingInternal = false;
         error = _deckLinkProfileAttributes->GetFlag(BMDDeckLinkSupportsInternalKeying, &keyingInternal);
         if (!error && keyingInternal)
@@ -207,8 +215,12 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
         
         _supportKeying = (keyingInternal || keyingExternal);
     }
+}
+
+- (void) loadStaticDeviceAttributes
+{
+    HRESULT error = E_FAIL;
     
-    // Validate attributes
     _modelName = @"Unknown modelName";
     CFStringRef newModelName = nil;
     error = _deckLink->GetModelName(&newModelName);
