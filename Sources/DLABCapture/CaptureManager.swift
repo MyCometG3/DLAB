@@ -1120,7 +1120,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     }
     
     /// Audio SampleBuffer callback - Enqueue immediately
-    /// - Parameter info: A wrapper for sampleBuffer and sender
+    /// - Parameter info: A wrapper for sampleBuffer and optional timecode setting
     private func processCapturedAudioSampleAsync(_ info: UnsafeSampleBufferInfo) async {
         let sampleBuffer = info.sampleBuffer
         
