@@ -13,6 +13,22 @@
 #import <DLABQueryInterfaceAny.h>
 #import <DLABVersionChecker.h>
 
+#if DEBUG
+#define DLABShutdownCallbackAssert(condition, message) NSCAssert((condition), (message))
+#else
+#define DLABShutdownCallbackAssert(condition, message) do { (void)(condition); } while (0)
+#endif
+
+NS_INLINE void DLABAssertOrphanedCallback(BOOL released,
+                                          NSString * _Nonnull callbackName,
+                                          NSString * _Nonnull operationName)
+{
+    DLABShutdownCallbackAssert(released,
+                               ([NSString stringWithFormat:@"%@ failed during shutdown; retaining %@ to avoid releasing a callback still owned by DeckLink.",
+                                 operationName,
+                                 callbackName]));
+}
+
 const char* kCaptureQueue = "DLABDevice.captureQueue";
 const char* kPlaybackQueue = "DLABDevice.playbackQueue";
 const char* kDelegateQueue = "DLABDevice.delegateQueue";
@@ -316,15 +332,26 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
         _inputPreviewCallback = NULL;
     }
     if (_profileCallback) {
-        [self subscribeProfileChange:NO];
-        _profileCallback->Release();
-        _profileCallback = NULL;
+        BOOL canReleaseProfileCallback = YES;
+        if (_profileCallbackRegistered) {
+            canReleaseProfileCallback = [self subscribeProfileChange:NO];
+        }
+        DLABAssertOrphanedCallback(canReleaseProfileCallback,
+                                   @"_profileCallback",
+                                   @"IDeckLinkProfileManager::SetCallback(NULL)");
+        if (canReleaseProfileCallback) {
+            _profileCallback->Release();
+            _profileCallback = NULL;
+        }
     }
     if (_prefsChangeCallback) {
         BOOL canReleasePrefsCallback = YES;
         if (_prefsChangeNotificationSubscribed) {
             canReleasePrefsCallback = [self subscribePrefsChangeNotification:NO];
         }
+        DLABAssertOrphanedCallback(canReleasePrefsCallback,
+                                   @"_prefsChangeCallback",
+                                   @"IDeckLinkNotification::Unsubscribe(bmdPreferencesChanged)");
         if (canReleasePrefsCallback) {
             _prefsChangeCallback->Release();
             _prefsChangeCallback = NULL;
@@ -335,20 +362,39 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
         if (_statusChangeNotificationSubscribed) {
             canReleaseStatusCallback = [self subscribeStatusChangeNotification:NO];
         }
+        DLABAssertOrphanedCallback(canReleaseStatusCallback,
+                                   @"_statusChangeCallback",
+                                   @"IDeckLinkNotification::Unsubscribe(bmdStatusChanged)");
         if (canReleaseStatusCallback) {
             _statusChangeCallback->Release();
             _statusChangeCallback = NULL;
         }
     }
     if (_outputCallback) {
-        [self subscribeOutput:NO];
-        _outputCallback->Release();
-        _outputCallback = NULL;
+        BOOL canReleaseOutputCallback = YES;
+        if (_outputCallbackRegistered) {
+            canReleaseOutputCallback = [self subscribeOutput:NO];
+        }
+        DLABAssertOrphanedCallback(canReleaseOutputCallback,
+                                   @"_outputCallback",
+                                   @"IDeckLinkOutput::SetScheduledFrameCompletionCallback(NULL)");
+        if (canReleaseOutputCallback) {
+            _outputCallback->Release();
+            _outputCallback = NULL;
+        }
     }
     if (_inputCallback) {
-        [self subscribeInput:NO];
-        _inputCallback->Release();
-        _inputCallback = NULL;
+        BOOL canReleaseInputCallback = YES;
+        if (_inputCallbackRegistered) {
+            canReleaseInputCallback = [self subscribeInput:NO];
+        }
+        DLABAssertOrphanedCallback(canReleaseInputCallback,
+                                   @"_inputCallback",
+                                   @"IDeckLinkInput::SetCallback(NULL)");
+        if (canReleaseInputCallback) {
+            _inputCallback->Release();
+            _inputCallback = NULL;
+        }
     }
     
     if (_deckLinkOutput) {
@@ -519,6 +565,9 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
 @synthesize needsInputVideoConfigurationRefresh = _needsInputVideoConfigurationRefresh;
 @synthesize statusChangeNotificationSubscribed = _statusChangeNotificationSubscribed;
 @synthesize prefsChangeNotificationSubscribed = _prefsChangeNotificationSubscribed;
+@synthesize inputCallbackRegistered = _inputCallbackRegistered;
+@synthesize outputCallbackRegistered = _outputCallbackRegistered;
+@synthesize profileCallbackRegistered = _profileCallbackRegistered;
 @synthesize inputVideoConverter = _inputVideoConverter;
 @synthesize outputVideoConverter = _outputVideoConverter;
 
@@ -654,11 +703,15 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
         result = input->SetCallback(callback);
         if (result) {
             NSLog(@"ERROR: IDeckLinkInput::SetCallback failed.");
+        } else {
+            self.inputCallbackRegistered = YES;
         }
     } else {
         result = input->SetCallback(NULL);
         if (result) {
             NSLog(@"ERROR: IDeckLinkInput::SetCallback failed.");
+        } else {
+            self.inputCallbackRegistered = NO;
         }
     }
     return (result == S_OK);
@@ -675,11 +728,15 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
         result = output->SetScheduledFrameCompletionCallback(callback);
         if (result) {
             NSLog(@"ERROR: IDeckLinkOutput::SetScheduledFrameCompletionCallback failed.");
+        } else {
+            self.outputCallbackRegistered = YES;
         }
     } else {
         result = output->SetScheduledFrameCompletionCallback(NULL);
         if (result) {
             NSLog(@"ERROR: IDeckLinkOutput::SetScheduledFrameCompletionCallback failed.");
+        } else {
+            self.outputCallbackRegistered = NO;
         }
     }
     return (result == S_OK);
@@ -746,11 +803,15 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
         result = manager->SetCallback(callback);
         if (result) {
             NSLog(@"ERROR: IDeckLinkProfileManager::SetCallback failed.");
+        } else {
+            self.profileCallbackRegistered = YES;
         }
     } else {
         result = manager->SetCallback(NULL);
         if (result) {
             NSLog(@"ERROR: IDeckLinkProfileManager::SetCallback failed.");
+        } else {
+            self.profileCallbackRegistered = NO;
         }
     }
     return (result == S_OK);

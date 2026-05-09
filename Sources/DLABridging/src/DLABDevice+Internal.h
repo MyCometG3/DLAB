@@ -350,6 +350,21 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @property (nonatomic, assign) BOOL prefsChangeNotificationSubscribed;
 
+/**
+ Tracks whether IDeckLinkInput currently has the callback installed.
+ */
+@property (nonatomic, assign) BOOL inputCallbackRegistered;
+
+/**
+ Tracks whether IDeckLinkOutput currently has the callback installed.
+ */
+@property (nonatomic, assign) BOOL outputCallbackRegistered;
+
+/**
+ Tracks whether IDeckLinkProfileManager currently has the callback installed.
+ */
+@property (nonatomic, assign) BOOL profileCallbackRegistered;
+
 //
 
 /**
