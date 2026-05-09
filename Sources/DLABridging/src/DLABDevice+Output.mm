@@ -269,7 +269,7 @@ NS_INLINE BMDAncillaryDataSpace DLABBMDAncillaryDataSpaceFromPublic(DLABAncillar
 /* =================================================================================== */
 
 NS_INLINE BOOL copyBufferCVtoDL(DLABDevice* self, CVPixelBufferRef pixelBuffer, IDeckLinkMutableVideoFrame* videoFrame) {
-    assert(pixelBuffer && videoFrame);
+    if (!pixelBuffer || !videoFrame) return FALSE;
     
     BOOL pre1403 = [DLABVersionChecker checkPre1403];
     
@@ -313,12 +313,14 @@ NS_INLINE BOOL copyBufferCVtoDL(DLABDevice* self, CVPixelBufferRef pixelBuffer, 
             } else {
                 pixelSize = pixelSizeForCV(pixelBuffer);
             }
-            assert(pixelSize > 0);
-            
-            vImage_Error convErr = kvImageNoError;
-            convErr = vImageCopyBuffer(&sourceBuffer, &targetBuffer,
-                                       pixelSize, kvImageNoFlags);
-            result = (convErr == kvImageNoError);
+            if (pixelSize == 0) {
+                result = false;
+            } else {
+                vImage_Error convErr = kvImageNoError;
+                convErr = vImageCopyBuffer(&sourceBuffer, &targetBuffer,
+                                           pixelSize, kvImageNoFlags);
+                result = (convErr == kvImageNoError);
+            }
         }
         CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
     }
@@ -331,7 +333,7 @@ NS_INLINE BOOL copyBufferCVtoDL(DLABDevice* self, CVPixelBufferRef pixelBuffer, 
 }
 
 NS_INLINE BOOL copyPlaneCVtoDL(DLABDevice* self, CVPixelBufferRef pixelBuffer, IDeckLinkMutableVideoFrame* videoFrame) {
-    assert(pixelBuffer && videoFrame);
+    if (!pixelBuffer || !videoFrame) return FALSE;
     
     BOOL pre1403 = [DLABVersionChecker checkPre1403];
     
@@ -394,7 +396,7 @@ NS_INLINE BOOL copyPlaneCVtoDL(DLABDevice* self, CVPixelBufferRef pixelBuffer, I
     
     BOOL ready = false;
     OSType cvPixelFormat = self.outputVideoSetting.cvPixelFormatType;
-    assert(cvPixelFormat);
+    if (!cvPixelFormat) return NULL;
     
     // take out free output frame from frame pool
     IDeckLinkMutableVideoFrame* videoFrame = [self reserveOutputVideoFrame];

@@ -70,6 +70,26 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
         outputVideoFrameSet = [NSMutableSet set];
         outputVideoFrameIdleSet = [NSMutableSet set];
         
+        // Eagerly initialize dispatch queues and callback objects to avoid
+        // lazy-initialization races on concurrent first access.
+        _captureQueue = dispatch_queue_create(kCaptureQueue, DISPATCH_QUEUE_SERIAL);
+        captureQueueKey = &captureQueueKey;
+        dispatch_queue_set_specific(_captureQueue, captureQueueKey, (__bridge void*)self, NULL);
+        
+        _playbackQueue = dispatch_queue_create(kPlaybackQueue, DISPATCH_QUEUE_SERIAL);
+        playbackQueueKey = &playbackQueueKey;
+        dispatch_queue_set_specific(_playbackQueue, playbackQueueKey, (__bridge void*)self, NULL);
+        
+        _delegateQueue = dispatch_queue_create(kDelegateQueue, DISPATCH_QUEUE_SERIAL);
+        delegateQueueKey = &delegateQueueKey;
+        dispatch_queue_set_specific(_delegateQueue, delegateQueueKey, (__bridge void*)self, NULL);
+        
+        _inputCallback = new DLABInputCallback((id)self);
+        _outputCallback = new DLABOutputCallback((id)self);
+        _statusChangeCallback = new DLABNotificationCallback((id)self);
+        _prefsChangeCallback = new DLABNotificationCallback((id)self);
+        _profileCallback = new DLABProfileCallback((id)self);
+        
         //
         [self validate];
     }
@@ -880,74 +900,41 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
 
 - (DLABInputCallback *)inputCallback
 {
-    if (!_inputCallback) {
-        _inputCallback = new DLABInputCallback((id)self);
-    }
     return _inputCallback;
 }
 
 - (DLABOutputCallback *)outputCallback
 {
-    if (!_outputCallback) {
-        _outputCallback = new DLABOutputCallback((id)self);
-    }
     return _outputCallback;
 }
 
 - (DLABNotificationCallback*)statusChangeCallback
 {
-    if (!_statusChangeCallback) {
-        _statusChangeCallback = new DLABNotificationCallback((id)self);
-    }
     return _statusChangeCallback;
 }
 
 - (DLABNotificationCallback*)prefsChangeCallback
 {
-    if (!_prefsChangeCallback) {
-        _prefsChangeCallback = new DLABNotificationCallback((id)self);
-    }
     return _prefsChangeCallback;
 }
 
 - (DLABProfileCallback*)profileCallback
 {
-    if (!_profileCallback) {
-        _profileCallback = new DLABProfileCallback((id)self);
-    }
     return _profileCallback;
 }
 
 - (dispatch_queue_t) captureQueue
 {
-    if (!_captureQueue) {
-        _captureQueue = dispatch_queue_create(kCaptureQueue, DISPATCH_QUEUE_SERIAL);
-        captureQueueKey = &captureQueueKey;
-        void *unused = (__bridge void*)self;
-        dispatch_queue_set_specific(_captureQueue, captureQueueKey, unused, NULL);
-    }
     return _captureQueue;
 }
 
 - (dispatch_queue_t) playbackQueue
 {
-    if (!_playbackQueue) {
-        _playbackQueue = dispatch_queue_create(kPlaybackQueue, DISPATCH_QUEUE_SERIAL);
-        playbackQueueKey = &playbackQueueKey;
-        void *unused = (__bridge void*)self;
-        dispatch_queue_set_specific(_playbackQueue, playbackQueueKey, unused, NULL);
-    }
     return _playbackQueue;
 }
 
 - (dispatch_queue_t) delegateQueue
 {
-    if (!_delegateQueue) {
-        _delegateQueue = dispatch_queue_create(kDelegateQueue, DISPATCH_QUEUE_SERIAL);
-        delegateQueueKey = &delegateQueueKey;
-        void *unused = (__bridge void*)self;
-        dispatch_queue_set_specific(_delegateQueue, delegateQueueKey, unused, NULL);
-    }
     return _delegateQueue;
 }
 
