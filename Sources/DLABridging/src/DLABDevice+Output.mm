@@ -10,6 +10,7 @@
 
 #import <DLABDevice+Internal.h>
 #import <DLABBridgingSupport.h>
+#import <DLABVideoFramePool.h>
 #import <DLABQueryInterfaceAny.h>
 #import <DLABVideoBufferSupport.h>
 
@@ -135,7 +136,7 @@ NS_INLINE BMDAncillaryDataSpace DLABBMDAncillaryDataSpaceFromPublic(DLABAncillar
     // TODO eval GetFrameCompletionReferenceTimestamp() here
     
     // free output frame
-    [self releaseOutputVideoFrame:(IDeckLinkMutableVideoFrame *)frame];
+    [self.outputVideoFramePool releaseFrame:(IDeckLinkMutableVideoFrame *)frame];
     
     // delegate can schedule next frame here
     __weak typeof(self) wself = self;
@@ -168,102 +169,6 @@ NS_INLINE BMDAncillaryDataSpace DLABBMDAncillaryDataSpaceFromPublic(DLABAncillar
 }
 
 /* =================================================================================== */
-// MARK: Manage output VideoFrame pool
-/* =================================================================================== */
-
-- (BOOL) prepareOutputVideoFramePool
-{
-    BOOL ret = NO;
-    HRESULT result = E_FAIL;
-    DLABVideoSetting* setting = self.outputVideoSetting;
-    IDeckLinkOutput* output = self.deckLinkOutput;
-    if (output && setting) {
-        @synchronized (self) {
-            // Set initial pool size as 4 frames
-            BOOL initialSetup = (self.outputVideoFrameSet.count == 0);
-            int expandingUnit = initialSetup ? 4 : 2;
-            
-            BOOL needsExpansion = (self.outputVideoFrameIdleSet.count == 0);
-            if (needsExpansion) {
-                // Get frame properties
-                int32_t width = (int32_t)setting.width;
-                int32_t height = (int32_t)setting.height;
-                int32_t rowBytes = (int32_t)setting.rowBytes;
-                BMDPixelFormat pixelFormat = setting.pixelFormat;
-                BMDFrameFlags flags = setting.outputFlag;
-                
-                // Try expanding the OutputVideoFramePool
-                for (int i = 0; i < expandingUnit; i++) {
-                    // Check if pool size is at maximum value
-                    BOOL poolIsFull = (self.outputVideoFrameSet.count >= maxOutputVideoFrameCount);
-                    if (poolIsFull) break;
-                    
-                    // Create new output videoFrame object
-                    IDeckLinkMutableVideoFrame *outFrame = NULL;
-                    result = output->CreateVideoFrame(width, height, rowBytes,
-                                                      pixelFormat, flags, &outFrame);
-                    if (result) break;
-                    
-                    // register outputVideoFrame into the pool
-                    NSValue* ptrValue = [NSValue valueWithPointer:(void*)outFrame];
-                    [self.outputVideoFrameSet addObject:ptrValue];
-                    [self.outputVideoFrameIdleSet addObject:ptrValue];
-                }
-            }
-            ret = (self.outputVideoFrameIdleSet.count > 0);
-        }
-    }
-    return ret;
-}
-
-- (void) freeOutputVideoFramePool
-{
-    @synchronized (self) {
-        // Release all outputVideoFrame objects
-        for (NSValue *ptrValue in self.outputVideoFrameSet) {
-            IDeckLinkMutableVideoFrame *outFrame = (IDeckLinkMutableVideoFrame*)ptrValue.pointerValue;
-            if (outFrame) {
-                outFrame->Release();
-            }
-        }
-        
-        // unregister all of outputVideoFrame in the pool
-        [self.outputVideoFrameIdleSet removeAllObjects];
-        [self.outputVideoFrameSet removeAllObjects];
-    }
-}
-
-- (IDeckLinkMutableVideoFrame*) reserveOutputVideoFrame
-{
-    // Check if all are in use (and try to expand the pool)
-    [self prepareOutputVideoFramePool];
-    
-    IDeckLinkMutableVideoFrame *outFrame = NULL;
-    @synchronized (self) {
-        NSValue* ptrValue = [self.outputVideoFrameIdleSet anyObject];
-        if (ptrValue) {
-            [self.outputVideoFrameIdleSet removeObject:ptrValue];
-            outFrame = (IDeckLinkMutableVideoFrame*)ptrValue.pointerValue;
-        }
-    }
-    
-    return outFrame;
-}
-
-- (BOOL) releaseOutputVideoFrame:(IDeckLinkMutableVideoFrame*)outFrame
-{
-    BOOL result = NO;
-    @synchronized (self) {
-        NSValue* ptrValue = [NSValue valueWithPointer:(void*)outFrame];
-        NSValue* orgValue = [self.outputVideoFrameSet member:ptrValue];
-        if (orgValue) {
-            [self.outputVideoFrameIdleSet addObject:orgValue];
-            result = YES;
-        }
-    }
-    return result;
-}
-
 /* =================================================================================== */
 // MARK: Process Output videoFrame/timecode
 /* =================================================================================== */
@@ -399,7 +304,8 @@ NS_INLINE BOOL copyPlaneCVtoDL(DLABDevice* self, CVPixelBufferRef pixelBuffer, I
     if (!cvPixelFormat) return NULL;
     
     // take out free output frame from frame pool
-    IDeckLinkMutableVideoFrame* videoFrame = [self reserveOutputVideoFrame];
+    [self.outputVideoFramePool prepareWithOutput:self.deckLinkOutput setting:self.outputVideoSetting];
+    IDeckLinkMutableVideoFrame* videoFrame = [self.outputVideoFramePool reserveFrame];
     if (videoFrame) {
         // Simply check if width, height are same
         size_t pbWidth = CVPixelBufferGetWidth(pixelBuffer);
@@ -434,7 +340,7 @@ NS_INLINE BOOL copyPlaneCVtoDL(DLABDevice* self, CVPixelBufferRef pixelBuffer, I
         return videoFrame;
     } else {
         if (videoFrame)
-            [self releaseOutputVideoFrame:videoFrame];
+            [self.outputVideoFramePool releaseFrame:videoFrame];
         return NULL;
     }
 }
@@ -1225,7 +1131,7 @@ static DLABFrameMetadata * processCallbacks(DLABDevice *self, IDeckLinkMutableVi
         result = output->DisplayVideoFrameSync(outFrame);
         
         // free output frame
-        [self releaseOutputVideoFrame:outFrame];
+        [self.outputVideoFramePool releaseFrame:outFrame];
     } else {
         [self post:[NSString stringWithFormat:@"%s (%d)", __PRETTY_FUNCTION__, __LINE__]
             reason:@"DLABDevice - outputVideoFrameWithPixelBuffer: failed."
@@ -1238,7 +1144,7 @@ static DLABFrameMetadata * processCallbacks(DLABDevice *self, IDeckLinkMutableVi
         return YES;
     } else {
         if (outFrame) {
-            [self releaseOutputVideoFrame:outFrame];
+            [self.outputVideoFramePool releaseFrame:outFrame];
         }
         
         [self post:[NSString stringWithFormat:@"%s (%d)", __PRETTY_FUNCTION__, __LINE__]
@@ -1291,7 +1197,7 @@ static DLABFrameMetadata * processCallbacks(DLABDevice *self, IDeckLinkMutableVi
         return YES;
     } else {
         if (outFrame) {
-            [self releaseOutputVideoFrame:outFrame];
+            [self.outputVideoFramePool releaseFrame:outFrame];
         }
         
         [self post:[NSString stringWithFormat:@"%s (%d)", __PRETTY_FUNCTION__, __LINE__]
@@ -1390,7 +1296,7 @@ static DLABFrameMetadata * processCallbacks(DLABDevice *self, IDeckLinkMutableVi
         return YES;
     } else {
         if (outFrame) {
-            [self releaseOutputVideoFrame:outFrame];
+            [self.outputVideoFramePool releaseFrame:outFrame];
         }
         
         [self post:[NSString stringWithFormat:@"%s (%d)", __PRETTY_FUNCTION__, __LINE__]

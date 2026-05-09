@@ -67,8 +67,7 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
         _deckLink->AddRef();
         
         //
-        outputVideoFrameSet = [NSMutableSet set];
-        outputVideoFrameIdleSet = [NSMutableSet set];
+        _outputVideoFramePool = [[DLABVideoFramePool alloc] init];
         
         // Eagerly initialize dispatch queues and callback objects to avoid
         // lazy-initialization races on concurrent first access.
@@ -297,7 +296,7 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
     }
     
     // Release OutputVideoFramePool
-    [self freeOutputVideoFramePool];
+    [_outputVideoFramePool freeFrames];
     
     // Release CFObjects
     if (_inputPixelBufferPool) {
@@ -501,8 +500,7 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
 @synthesize captureQueueKey = captureQueueKey;
 @synthesize playbackQueueKey = playbackQueueKey;
 @synthesize delegateQueueKey = delegateQueueKey;
-@synthesize outputVideoFrameSet = outputVideoFrameSet;
-@synthesize outputVideoFrameIdleSet = outputVideoFrameIdleSet;
+@synthesize outputVideoFramePool = _outputVideoFramePool;
 
 @synthesize inputPixelBufferPool = _inputPixelBufferPool;
 @synthesize outputPreviewCallback = _outputPreviewCallback;

@@ -10,6 +10,7 @@
 
 #import <DLABDevice.h>
 #import <DLABVersionChecker.h>
+#import <DLABVideoFramePool.h>
 #import <DeckLinkAPI.h>
 
 #import <DeckLinkAPI_v15_3_1.h>
@@ -42,8 +43,6 @@
 #import <DLABFrameMetadata+Internal.h>
 #import <DLABVideoConverter.h>
 #import <DLABDeckControl+Internal.h>
-
-const int maxOutputVideoFrameCount = 8;
 
 NS_INLINE IDeckLinkScreenPreviewCallback * _Nullable DLABCreateScreenPreviewCallback(NSView * _Nonnull parentView)
 {
@@ -304,17 +303,12 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @property (nonatomic, assign, readonly) void* delegateQueueKey;
 
-// NSMutableSet* - OutputVideoFramePool management
+// DLABVideoFramePool - OutputVideoFramePool management
 
 /**
  OutputVideoFramePool management.
  */
-@property (nonatomic, strong, readonly) NSMutableSet* outputVideoFrameSet;
-
-/**
- OutputVideoFramePool management.
- */
-@property (nonatomic, strong, readonly) NSMutableSet* outputVideoFrameIdleSet;
+@property (nonatomic, strong, readonly) DLABVideoFramePool* outputVideoFramePool;
 
 /* =================================================================================== */
 
@@ -398,33 +392,6 @@ NS_ASSUME_NONNULL_BEGIN
 /* =================================================================================== */
 // MARK: private method
 /* =================================================================================== */
-
-/**
- Check output VideoFrame pool and expand if required.
- 
- @return YES if no error, NO if failed
- */
-- (BOOL) prepareOutputVideoFramePool;
-
-/**
- Clean up all output VideoFrame in pool
- */
-- (void) freeOutputVideoFramePool;
-
-/**
- Reserve output VideoFrame and take it out from output VideoFrame pool
- 
- @return IDeckLinkMutableVideoFrame or null if failed.
- */
-- (nullable IDeckLinkMutableVideoFrame*) reserveOutputVideoFrame;
-
-/**
- Release output VideoFrame and return it to output VideoFrame pool
- 
- @param outFrame IDeckLinkMutableVideoFrame
- @return YES if no error, NO if failed
- */
-- (BOOL) releaseOutputVideoFrame:(IDeckLinkMutableVideoFrame*)outFrame;
 
 /**
  Prepare output VideoFrame from PixelBuffer
