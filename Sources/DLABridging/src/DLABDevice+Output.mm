@@ -112,6 +112,12 @@ NS_INLINE NSNumber * DLABOutputBoolValue(DLABDevice *self,
     return nil;
 }
 
+NS_INLINE void DLABResetOutputVideoResources(DLABDevice *self)
+{
+    [self.outputVideoFramePool freeFrames];
+    self.outputVideoConverter = nil;
+}
+
 /* =================================================================================== */
 // MARK: - output (internal)
 /* =================================================================================== */
@@ -857,6 +863,7 @@ NS_INLINE BOOL copyPlaneCVtoDL(DLABDevice* self, CVPixelBufferRef pixelBuffer, I
         return output->EnableVideoOutput(displayMode, outputFlag);
     });
     if (succeeded) {
+        DLABResetOutputVideoResources(self);
         self.outputVideoSettingW = setting;
     } else {
         self.outputVideoSettingW = nil;
@@ -890,6 +897,7 @@ NS_INLINE BOOL copyPlaneCVtoDL(DLABDevice* self, CVPixelBufferRef pixelBuffer, I
         return output->DisableVideoOutput();
     });
     if (succeeded) {
+        DLABResetOutputVideoResources(self);
         self.outputVideoSettingW = nil;
     }
     return succeeded;
