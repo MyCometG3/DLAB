@@ -47,28 +47,36 @@ internal final class VideoSampleBufferHelper: @unchecked Sendable {
         return typeOK && widthOK && heightOK && strideOK
     }
     
+    private func getOrCreatePixelBufferPoolLocked(with dict: CFDictionary) -> CVPixelBufferPool {
+        if let pool = pixelBufferPoolStorage {
+            if matchesPixelBufferPool(pool, with: dict) {
+                return pool
+            }
+            CVPixelBufferPoolFlush(pool, .excessBuffers)
+            pixelBufferPoolStorage = nil
+        }
+        let poolAttr = [kCVPixelBufferPoolMinimumBufferCountKey: 4 as CFNumber] as CFDictionary
+        let err = CVPixelBufferPoolCreate(kCFAllocatorDefault, poolAttr, dict, &pixelBufferPoolStorage)
+        precondition(err == kCVReturnSuccess, "ERROR: Failed to create CVPixelBufferPool")
+        return pixelBufferPoolStorage!
+    }
+
     private func getOrCreatePixelBufferPool(with dict: CFDictionary) -> CVPixelBufferPool {
         poolLock.withLock {
-            if let pool = pixelBufferPoolStorage {
-                if matchesPixelBufferPool(pool, with: dict) {
-                    return pool
-                }
-                CVPixelBufferPoolFlush(pool, .excessBuffers)
-                pixelBufferPoolStorage = nil
-            }
-            let poolAttr = [kCVPixelBufferPoolMinimumBufferCountKey: 4 as CFNumber] as CFDictionary
-            let err = CVPixelBufferPoolCreate(kCFAllocatorDefault, poolAttr, dict, &pixelBufferPoolStorage)
-            precondition(err == kCVReturnSuccess, "ERROR: Failed to create CVPixelBufferPool")
-            return pixelBufferPoolStorage!
+            getOrCreatePixelBufferPoolLocked(with: dict)
         }
     }
     
-    private func takePixelBuffer() -> CVPixelBuffer? {
+    private func takePixelBuffer(from pool: CVPixelBufferPool) -> CVPixelBuffer? {
+        var pbOut: CVPixelBuffer?
+        CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pbOut)
+        return pbOut
+    }
+
+    private func takePixelBuffer(matching dict: CFDictionary) -> CVPixelBuffer? {
         poolLock.withLock {
-            guard let pool = pixelBufferPoolStorage else { return nil }
-            var pbOut: CVPixelBuffer?
-            CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pbOut)
-            return pbOut
+            let pool = getOrCreatePixelBufferPoolLocked(with: dict)
+            return takePixelBuffer(from: pool)
         }
     }
     
@@ -163,9 +171,7 @@ internal final class VideoSampleBufferHelper: @unchecked Sendable {
             kCVPixelBufferIOSurfacePropertiesKey: [:] as [CFString : Any],
         ] as [CFString : Any] as CFDictionary
         
-        _ = getOrCreatePixelBufferPool(with: dict)
-        
-        pbOut = takePixelBuffer()
+        pbOut = takePixelBuffer(matching: dict)
         
         if let pbOut = pbOut {
             CVPixelBufferLockBaseAddress(pb, .readOnly)
