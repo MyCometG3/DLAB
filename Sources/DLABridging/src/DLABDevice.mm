@@ -321,18 +321,24 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
         _profileCallback = NULL;
     }
     if (_prefsChangeCallback) {
+        BOOL canReleasePrefsCallback = YES;
         if (_prefsChangeNotificationSubscribed) {
-            [self subscribePrefsChangeNotification:NO];
+            canReleasePrefsCallback = [self subscribePrefsChangeNotification:NO];
         }
-        _prefsChangeCallback->Release();
-        _prefsChangeCallback = NULL;
+        if (canReleasePrefsCallback) {
+            _prefsChangeCallback->Release();
+            _prefsChangeCallback = NULL;
+        }
     }
     if (_statusChangeCallback) {
+        BOOL canReleaseStatusCallback = YES;
         if (_statusChangeNotificationSubscribed) {
-            [self subscribeStatusChangeNotification:NO];
+            canReleaseStatusCallback = [self subscribeStatusChangeNotification:NO];
         }
-        _statusChangeCallback->Release();
-        _statusChangeCallback = NULL;
+        if (canReleaseStatusCallback) {
+            _statusChangeCallback->Release();
+            _statusChangeCallback = NULL;
+        }
     }
     if (_outputCallback) {
         [self subscribeOutput:NO];
