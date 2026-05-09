@@ -806,92 +806,84 @@ const char* kDelegateQueue = "DLABDevice.delegateQueue";
 // MARK: - (Public) - property setter
 /* =================================================================================== */
 
+- (void) updateSubscriptionFrom:(id)oldValue
+                           to:(id)newValue
+                        block:(BOOL(^)(BOOL))subscribeBlock
+{
+    if (oldValue) {
+        subscribeBlock(NO);
+    }
+    if (newValue) {
+        subscribeBlock(YES);
+    }
+}
+
 - (void) setOutputDelegate:(id<DLABOutputPlaybackDelegate>)newDelegate
 {
     if (_outputDelegate == newDelegate) return;
-    if (_outputDelegate) {
-        // Unsubscribe request from current delegate
-        _outputDelegate = nil;
-        
-        [self subscribeOutput:NO];
-    }
+    id old = _outputDelegate;
+    _outputDelegate = nil;
     if (newDelegate) {
-        // Subscribe request from new delegate
         _outputDelegate = newDelegate;
-        
-        [self subscribeOutput:YES];
     }
+    [self updateSubscriptionFrom:old
+                              to:newDelegate
+                           block:^BOOL(BOOL flag) { return [self subscribeOutput:flag]; }];
 }
 
 - (void) setInputDelegate:(id<DLABInputCaptureDelegate>)newDelegate
 {
     if (_inputDelegate == newDelegate) return;
-    if (_inputDelegate) {
-        // Unsubscribe request from current delegate
-        _inputDelegate = nil;
-        
-        [self subscribeInput:NO];
-    }
+    id old = _inputDelegate;
+    _inputDelegate = nil;
     if (newDelegate) {
-        // Subscribe request from new delegate
         _inputDelegate = newDelegate;
-        
-        [self subscribeInput:YES];
     }
+    [self updateSubscriptionFrom:old
+                              to:newDelegate
+                           block:^BOOL(BOOL flag) { return [self subscribeInput:flag]; }];
 }
 
 // public DLABStatusChangeDelegate
 - (void) setStatusDelegate:(id<DLABStatusChangeDelegate>)newDelegate
 {
     if (_statusDelegate == newDelegate) return;
-    if (_statusDelegate) {
-        // Unsubscribe request from current delegate
-        _statusDelegate = nil;
-        
-        [self subscribeStatusChangeNotification:NO];
-    }
+    id old = _statusDelegate;
+    _statusDelegate = nil;
     if (newDelegate) {
-        // Subscribe request from new delegate
         _statusDelegate = newDelegate;
-        
-        [self subscribeStatusChangeNotification:YES];
     }
+    [self updateSubscriptionFrom:old
+                              to:newDelegate
+                           block:^BOOL(BOOL flag) { return [self subscribeStatusChangeNotification:flag]; }];
 }
 
 // public DLABPrefsChangeDelegate
 - (void) setPrefsDelegate:(id<DLABPrefsChangeDelegate>)newDelegate
 {
     if (_prefsDelegate == newDelegate) return;
-    if (_prefsDelegate) {
-        // Unsubscribe request from current delegate
-        _prefsDelegate = nil;
-        
-        [self subscribePrefsChangeNotification:NO];
-    }
+    id old = _prefsDelegate;
+    _prefsDelegate = nil;
     if (newDelegate) {
-        // Subscribe request from new delegate
         _prefsDelegate = newDelegate;
-        
-        [self subscribePrefsChangeNotification:YES];
     }
+    [self updateSubscriptionFrom:old
+                              to:newDelegate
+                           block:^BOOL(BOOL flag) { return [self subscribePrefsChangeNotification:flag]; }];
 }
 
 // public DLABProfileChangeDelegate
 - (void) setProfileDelegate:(id<DLABProfileChangeDelegate>)newDelegate
 {
     if (_profileDelegate == newDelegate) return;
-    if (_profileDelegate) {
-        // Unsubscribe request from current delegate
-        _profileDelegate = nil;
-        
-        [self subscribeProfileChange:NO];
-    }
+    id old = _profileDelegate;
+    _profileDelegate = nil;
     if (newDelegate) {
-        // Subscribe request from new delegate
         _profileDelegate = newDelegate;
-        
-        [self subscribeProfileChange:YES];
     }
+    [self updateSubscriptionFrom:old
+                              to:newDelegate
+                           block:^BOOL(BOOL flag) { return [self subscribeProfileChange:flag]; }];
 }
 
 /* =================================================================================== */
