@@ -846,6 +846,11 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     
     /// deinit helper method for cleanup.
     private func detachedCleanup() {
+        appendGateOpen = false
+        running = false
+        _ = audioQueue.takeAll()
+        _ = videoQueue.takeAll()
+
         audioProcessorTask?.cancel()
         videoProcessorTask?.cancel()
         
@@ -1122,6 +1127,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     /// Audio SampleBuffer callback - Enqueue immediately
     /// - Parameter info: A wrapper for sampleBuffer and optional timecode setting
     private func processCapturedAudioSampleAsync(_ info: UnsafeSampleBufferInfo) async {
+        guard running else { return }
         let sampleBuffer = info.sampleBuffer
         
         if let writer = currentAppendWriter() {
@@ -1146,6 +1152,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     /// Video SampleBuffer callback - Enqueue immediately Or using DisplayLink
     /// - Parameter info: Video SampleBuffer wrapper
     private func processCapturedVideoSampleAsync(_ info: UnsafeSampleBufferInfo) async {
+        guard running else { return }
         let sampleBuffer = info.sampleBuffer
         let setting = info.setting
         
