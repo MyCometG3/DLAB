@@ -850,7 +850,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         running = false
         _ = audioQueue.takeAll()
         _ = videoQueue.takeAll()
-
+        
         audioProcessorTask?.cancel()
         videoProcessorTask?.cancel()
         

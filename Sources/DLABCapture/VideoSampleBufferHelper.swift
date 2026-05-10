@@ -60,7 +60,7 @@ internal final class VideoSampleBufferHelper: @unchecked Sendable {
         precondition(err == kCVReturnSuccess, "ERROR: Failed to create CVPixelBufferPool")
         return pixelBufferPoolStorage!
     }
-
+    
     private func getOrCreatePixelBufferPool(with dict: CFDictionary) -> CVPixelBufferPool {
         poolLock.withLock {
             getOrCreatePixelBufferPoolLocked(with: dict)
@@ -72,7 +72,7 @@ internal final class VideoSampleBufferHelper: @unchecked Sendable {
         CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pbOut)
         return pbOut
     }
-
+    
     private func takePixelBuffer(matching dict: CFDictionary) -> CVPixelBuffer? {
         poolLock.withLock {
             let pool = getOrCreatePixelBufferPoolLocked(with: dict)
