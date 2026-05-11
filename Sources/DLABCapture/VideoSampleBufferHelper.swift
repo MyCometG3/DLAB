@@ -258,7 +258,7 @@ internal final class VideoSampleBufferHelper: @unchecked Sendable {
         let ptr :UnsafeRawPointer = CFArrayGetValueAtIndex(attachments, 0)
         let dict = fromOpaque(ptr, CFMutableDictionary.self)
         let key = toOpaque(kCMSampleAttachmentKey_DoNotDisplay)
-        let value = toOpaque(kCFBooleanFalse)
+        let value = toOpaque(kCFBooleanTrue)
         CFDictionarySetValue(dict, key, value)
     }
     

@@ -867,6 +867,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     
     /// deinit helper method for cleanup.
     private func detachedCleanup() {
+        let isRunning = self.running
         appendGateOpen = false
         running = false
         _ = audioQueue.takeAll()
@@ -883,7 +884,6 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         let videoPreview = self.videoPreview
         let parentView = self.parentView
         let audioPreview = takeAudioPreview()
-        let isRunning = self.running
         let isRecording = self.recording
         let isVideoCaptureEnabled = self.videoCaptureEnabled
         let isAudioCaptureEnabled = self.audioCaptureEnabled
@@ -1177,11 +1177,13 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                 catch {
                     audioPreviewError = error
                     printVerbose("ERROR:CaptureManager.\(#function) - audio preview enqueue failed: \(error.localizedDescription)")
+                    return
                 }
                 do { try preview.aqPrime() }
                 catch {
                     audioPreviewError = error
                     printVerbose("ERROR:CaptureManager.\(#function) - audio preview aqPrime failed: \(error.localizedDescription)")
+                    return
                 }
                 do { try preview.aqStart() }
                 catch {
