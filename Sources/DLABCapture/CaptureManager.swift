@@ -152,6 +152,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     private let videoQueue = BoundedWorkQueue(maxDepth: 4)
     private var audioProcessorTask: Task<Void, Never>?
     private var videoProcessorTask: Task<Void, Never>?
+    private var parentViewUpdateTask: Task<Void, Never>?
     
     /* ============================================ */
     // MARK: - properties - Lock-protected runtime state
@@ -282,11 +283,13 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     /// Expected to be read/written on the `@MainActor`.
     public weak var parentView: NSView? = nil {
         didSet {
-            Task { @MainActor in
-                guard let device = currentDevice else { return }
+            let requestedParentView = parentView
+            parentViewUpdateTask?.cancel()
+            parentViewUpdateTask = Task { @MainActor [weak self] in
+                guard !Task.isCancelled, let self, let device = currentDevice else { return }
                 do {
-                    if let parentView = parentView {
-                        try device.setInputScreenPreviewTo(parentView)
+                    if let view = requestedParentView {
+                        try device.setInputScreenPreviewTo(view)
                     } else {
                         try device.setInputScreenPreviewTo(nil)
                     }
