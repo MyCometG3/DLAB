@@ -1,4 +1,5 @@
 import XCTest
+import CoreMedia
 @testable import DLABCapture
 
 final class DLABCaptureTests: XCTestCase {
@@ -34,6 +35,33 @@ final class DLABCaptureTests: XCTestCase {
         XCTAssertEqual(manager.nativeTimescaleFor(.modeNTSC2398), 24000)
         let fps = try XCTUnwrap(manager.nativeFPSFor(.modeNTSC2398))
         XCTAssertEqual(fps, Float(24.0 / 1.001), accuracy: 0.0001)
+    }
+
+    func testCaptureTimecodeHelperAllowsLargeFrameNumbersForTimeCode64() throws {
+        let helper = CaptureTimecodeHelper(formatType: kCMTimeCodeFormatType_TimeCode64)
+        var smpteTime = CVSMPTETime()
+        smpteTime.type = 0
+        smpteTime.hours = 24_856
+
+        let dataBuffer = try XCTUnwrap(
+            helper.testingPrepareTimeCodeDataBuffer(
+                smpteTime,
+                sizes: MemoryLayout<Int64>.size,
+                quanta: 24,
+                tcType: 0
+            )
+        )
+
+        var encodedFrameNumberBE: Int64 = 0
+        let status = CMBlockBufferCopyDataBytes(
+            dataBuffer,
+            atOffset: 0,
+            dataLength: MemoryLayout<Int64>.size,
+            destination: &encodedFrameNumberBE
+        )
+
+        XCTAssertEqual(status, kCMBlockBufferNoErr)
+        XCTAssertEqual(Int64(bigEndian: encodedFrameNumberBE), 2_147_558_400)
     }
 
     func testCaptureManagerPrewarmRequiresRunningCapture() async throws {

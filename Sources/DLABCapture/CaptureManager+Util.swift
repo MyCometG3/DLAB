@@ -224,14 +224,14 @@ extension CaptureManager {
     
     /// Native Timescale for DisplayMode
     /// - Parameter targetDisplayMode: DLABDisplayMode
-    /// - Returns: CMTimeScale
+    /// - Returns: The native CMTimeScale for the display mode, or nil when the mode is unsupported.
     public func nativeTimescaleFor(_ targetDisplayMode:DLABDisplayMode) -> CMTimeScale? {
         Self.displayModeTiming[targetDisplayMode]?.timescale
     }
     
     /// Native video frame rate for DisplayMode
     /// - Parameter targetDisplayMode: DLABDisplayMode
-    /// - Returns: FPS in Float
+    /// - Returns: The native frame rate for the display mode, or nil when the mode is unsupported.
     public func nativeFPSFor(_ targetDisplayMode:DLABDisplayMode) -> Float? {
         Self.displayModeTiming[targetDisplayMode]?.fps
     }
