@@ -213,7 +213,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     public var volume: Float = 1.0 {
         didSet {
             volume = max(0.0, min(1.0, volume))
-            if let preview = currentAudioPreview() {
+            withAudioPreview { preview in
                 preview.volume = Float32(volume)
             }
         }
@@ -234,11 +234,17 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     private let audioPreviewLock = UnfairLockBox()
     private var audioPreviewStorage: CaptureAudioPreview? = nil
     private var previewDisposed: Bool = false
+    private let audioPreviewInFlight = DispatchGroup()
     
-    private func currentAudioPreview() -> CaptureAudioPreview? {
-        audioPreviewLock.withLock {
-            previewDisposed ? nil : audioPreviewStorage
+    private func withAudioPreview<T>(_ body: (CaptureAudioPreview) throws -> T) rethrows -> T? {
+        let preview: CaptureAudioPreview? = audioPreviewLock.withLock {
+            guard !previewDisposed, let preview = audioPreviewStorage else { return nil }
+            audioPreviewInFlight.enter()
+            return preview
         }
+        guard let preview else { return nil }
+        defer { audioPreviewInFlight.leave() }
+        return try body(preview)
     }
     
     private func setAudioPreview(_ preview: CaptureAudioPreview?) {
@@ -248,14 +254,17 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         }
     }
     
-    private func takeAudioPreview() -> CaptureAudioPreview? {
-        audioPreviewLock.withLock {
-            guard !previewDisposed else { return nil }
+    private func disposeAudioPreview() throws {
+        let preview = audioPreviewLock.withLock { () -> CaptureAudioPreview? in
+            previewDisposed = true
             let preview = audioPreviewStorage
             audioPreviewStorage = nil
-            previewDisposed = true
             return preview
         }
+        guard let preview else { return }
+        audioPreviewInFlight.wait()
+        try preview.aqStop()
+        try preview.aqDispose()
     }
     /* ============================================ */
     // MARK: - properties - Capturing video (set before capture)
@@ -731,10 +740,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                 if let _ = parentView {
                     try await attachInputScreenPreview(to: nil) // @MainActor
                 }
-                if let preview = takeAudioPreview() {
-                    try preview.aqStop()
-                    try preview.aqDispose()
-                }
+                try disposeAudioPreview()
                 
                 // support for timecode
                 timecodeReady = false
@@ -890,11 +896,15 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         // Copy actor isolated properties to nonisolated variables
         let verbose = self.verbose
         
+        do { try disposeAudioPreview() }
+        catch {
+            if verbose { print("ERROR:CaptureManager.detachedCleanup - disposeAudioPreview failed: \(error.localizedDescription)") }
+        }
+        
         let device = self.currentDevice
         let writer = self.writer
         let videoPreview = self.videoPreview
         let parentView = self.parentView
-        let audioPreview = takeAudioPreview()
         let isRecording = self.recording
         let isVideoCaptureEnabled = self.videoCaptureEnabled
         let isAudioCaptureEnabled = self.audioCaptureEnabled
@@ -936,16 +946,6 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                         catch {
                             if verbose { print("ERROR:CaptureManager.detachedCleanup - setInputScreenPreviewTo failed: \(error.localizedDescription)") }
                         }
-                    }
-                }
-                if let audioPreview = audioPreview {
-                    do { try audioPreview.aqStop() }
-                    catch {
-                        if verbose { print("ERROR:CaptureManager.detachedCleanup - aqStop failed: \(error.localizedDescription)") }
-                    }
-                    do { try audioPreview.aqDispose() }
-                    catch {
-                        if verbose { print("ERROR:CaptureManager.detachedCleanup - aqDispose failed: \(error.localizedDescription)") }
                     }
                 }
             }
@@ -1195,7 +1195,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                 printVerbose("ERROR:CaptureManager.\(#function) - audio append failed: \(error.localizedDescription)")
             }
         }
-        if let preview = currentAudioPreview() {
+        withAudioPreview { preview in
             if preview.running == true {
                 do { try preview.enqueue(sampleBuffer) }
                 catch {
