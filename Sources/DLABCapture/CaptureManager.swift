@@ -110,6 +110,22 @@ private final class WeakParentViewBox: @unchecked Sendable {
     }
 }
 
+private struct AudioPreviewDisposeFailure: LocalizedError {
+    let stopError: NSError
+    let disposeError: NSError
+
+    var errorDescription: String? {
+        "Audio preview teardown failed."
+    }
+
+    var failureReason: String? {
+        [
+            "aqStop: \(stopError.domain)(\(stopError.code)): \(stopError.localizedFailureReason ?? stopError.localizedDescription)",
+            "aqDispose: \(disposeError.domain)(\(disposeError.code)): \(disposeError.localizedFailureReason ?? disposeError.localizedDescription)"
+        ].joined(separator: " | ")
+    }
+}
+
 /// Extension to make CaptureManager conform to Sendable for cross-actor usage.
 ///
 /// Concurrency model — mutable state falls into these categories:
@@ -236,6 +252,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     private var previewDisposed: Bool = false
     private let audioPreviewInFlight = DispatchGroup()
     
+    @discardableResult
     private func withAudioPreview<T>(_ body: (CaptureAudioPreview) throws -> T) rethrows -> T? {
         let preview: CaptureAudioPreview? = audioPreviewLock.withLock {
             guard !previewDisposed, let preview = audioPreviewStorage else { return nil }
@@ -263,8 +280,32 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         }
         guard let preview else { return }
         audioPreviewInFlight.wait()
-        try preview.aqStop()
-        try preview.aqDispose()
+        let stopError: NSError?
+        do {
+            try preview.aqStop()
+            stopError = nil
+        } catch let error as NSError {
+            stopError = error
+        }
+
+        let disposeError: NSError?
+        do {
+            try preview.aqDispose()
+            disposeError = nil
+        } catch let error as NSError {
+            disposeError = error
+        }
+
+        switch (stopError, disposeError) {
+        case (nil, nil):
+            return
+        case let (stopError?, nil):
+            throw stopError
+        case let (nil, disposeError?):
+            throw disposeError
+        case let (stopError?, disposeError?):
+            throw AudioPreviewDisposeFailure(stopError: stopError, disposeError: disposeError)
+        }
     }
     /* ============================================ */
     // MARK: - properties - Capturing video (set before capture)
@@ -897,8 +938,14 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         let verbose = self.verbose
         
         do { try disposeAudioPreview() }
-        catch {
-            if verbose { print("ERROR:CaptureManager.detachedCleanup - disposeAudioPreview failed: \(error.localizedDescription)") }
+        catch let error as AudioPreviewDisposeFailure {
+            if verbose {
+                print("ERROR:CaptureManager.detachedCleanup - aqStop failed: \(error.stopError.domain)(\(error.stopError.code)): \(error.stopError.localizedFailureReason ?? error.stopError.localizedDescription)")
+                print("ERROR:CaptureManager.detachedCleanup - aqDispose failed: \(error.disposeError.domain)(\(error.disposeError.code)): \(error.disposeError.localizedFailureReason ?? error.disposeError.localizedDescription)")
+            }
+        }
+        catch let error as NSError {
+            if verbose { print("ERROR:CaptureManager.detachedCleanup - disposeAudioPreview failed: \(error.domain)(\(error.code)): \(error.localizedFailureReason ?? error.localizedDescription)") }
         }
         
         let device = self.currentDevice
