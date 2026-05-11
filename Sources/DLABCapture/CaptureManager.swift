@@ -1113,13 +1113,11 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         of sender: DLABDevice
     ) {
         guard sender === currentDevice else { return }
+        guard verbose else { return }
         let modeName = videoSetting?.name ?? "nil"
-        Task { [weak self] in
-            guard let self else { return }
-            self.printVerbose(
-                "NOTICE: CaptureManager.processInputFormatChange - displayMode=\(modeName) events=0x\(String(events.rawValue, radix: 16)) flags=0x\(String(flags.rawValue, radix: 16))"
-            )
-        }
+        print(
+            "NOTICE: CaptureManager.processInputFormatChange - displayMode=\(modeName) events=0x\(String(events.rawValue, radix: 16)) flags=0x\(String(flags.rawValue, radix: 16))"
+        )
     }
     
     /// Callback method implementation - DLABInputCaptureDelegate
