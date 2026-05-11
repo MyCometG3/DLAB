@@ -1215,7 +1215,7 @@ actor CaptureWriter: NSObject {
             .failed     : "AVAssetWriterStatus.Failed",
             .cancelled  : "AVAssetWriterStatus.Cancelled"
         ]
-        let statusStr :String = statusArray[status]!
+        let statusStr = statusArray[status] ?? "Unknown(\(status.rawValue))"
         
         return statusStr
     }
