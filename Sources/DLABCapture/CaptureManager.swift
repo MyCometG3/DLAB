@@ -382,7 +382,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     
     /// Set encoded audio target bitrate. Default is 256 * 1000 bps.
     /// Recommends AAC-LC:64k~/ch, HE-AAC:24k~/ch, HE-AACv2: 12k~/ch.
-    public var encodeAudioBitrate :UInt = 256_000
+    public var encodeAudioBitrate :UInt = CaptureWriter.defaultEncodeAudioBitrate
     
     /// Optional: customise audio encode settings of AVAssetWriterInput.
     public var updateAudioSettings : (@Sendable ([String:Any]) -> [String:Any])? = nil
