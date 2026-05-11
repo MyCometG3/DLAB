@@ -89,6 +89,10 @@ class CaptureAudioPreview: NSObject, @unchecked Sendable {
     ///
     /// - Parameter audioFormatDescription: CMAudioFormatDescription
     /// - Returns: AudioPreview Object if success, nil if failed.
+    internal override init() {
+        super.init()
+    }
+
     init?(_ audioFormatDescription :CMAudioFormatDescription) {
         super.init()
         

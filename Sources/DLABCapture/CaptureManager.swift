@@ -251,6 +251,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     private var audioPreviewStorage: CaptureAudioPreview? = nil
     private var previewDisposed: Bool = false
     private let audioPreviewInFlight = DispatchGroup()
+    private let audioPreviewTeardownQueue = DispatchQueue(label: "captureManager.audioPreviewTeardown")
     
     @discardableResult
     private func withAudioPreview<T>(_ body: (CaptureAudioPreview) throws -> T) rethrows -> T? {
@@ -271,15 +272,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         }
     }
     
-    private func disposeAudioPreview() throws {
-        let preview = audioPreviewLock.withLock { () -> CaptureAudioPreview? in
-            previewDisposed = true
-            let preview = audioPreviewStorage
-            audioPreviewStorage = nil
-            return preview
-        }
-        guard let preview else { return }
-        audioPreviewInFlight.wait()
+    private static func teardownAudioPreview(_ preview: CaptureAudioPreview) throws {
         let stopError: NSError?
         do {
             try preview.aqStop()
@@ -306,6 +299,66 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         case let (stopError?, disposeError?):
             throw AudioPreviewDisposeFailure(stopError: stopError, disposeError: disposeError)
         }
+    }
+
+    private func takeAudioPreviewForDisposal() -> CaptureAudioPreview? {
+        audioPreviewLock.withLock { () -> CaptureAudioPreview? in
+            previewDisposed = true
+            let preview = audioPreviewStorage
+            audioPreviewStorage = nil
+            return preview
+        }
+    }
+
+    private func finishDisposingAudioPreview(
+        _ preview: CaptureAudioPreview,
+        teardown: @escaping @Sendable (CaptureAudioPreview) throws -> Void
+    ) async throws {
+        try await Self.finishDisposingAudioPreview(
+            preview,
+            inFlight: audioPreviewInFlight,
+            teardownQueue: audioPreviewTeardownQueue,
+            teardown: teardown
+        )
+    }
+
+    private static func finishDisposingAudioPreview(
+        _ preview: CaptureAudioPreview,
+        inFlight: DispatchGroup,
+        teardownQueue: DispatchQueue,
+        teardown: @escaping @Sendable (CaptureAudioPreview) throws -> Void
+    ) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            inFlight.notify(queue: teardownQueue) {
+                do {
+                    try teardown(preview)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func disposeAudioPreview() async throws {
+        guard let preview = takeAudioPreviewForDisposal() else { return }
+        try await finishDisposingAudioPreview(preview, teardown: Self.teardownAudioPreview)
+    }
+
+    internal func testingSetAudioPreview(_ preview: CaptureAudioPreview?) {
+        setAudioPreview(preview)
+    }
+
+    @discardableResult
+    internal func testingWithAudioPreview<T>(_ body: (CaptureAudioPreview) throws -> T) rethrows -> T? {
+        try withAudioPreview(body)
+    }
+
+    internal func testingDisposeAudioPreview(
+        teardown: @escaping @Sendable (CaptureAudioPreview) throws -> Void
+    ) async throws {
+        guard let preview = takeAudioPreviewForDisposal() else { return }
+        try await finishDisposingAudioPreview(preview, teardown: teardown)
     }
     /* ============================================ */
     // MARK: - properties - Capturing video (set before capture)
@@ -781,7 +834,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                 if let _ = parentView {
                     try await attachInputScreenPreview(to: nil) // @MainActor
                 }
-                try disposeAudioPreview()
+                try await disposeAudioPreview()
                 
                 // support for timecode
                 timecodeReady = false
@@ -937,21 +990,13 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         // Copy actor isolated properties to nonisolated variables
         let verbose = self.verbose
         
-        do { try disposeAudioPreview() }
-        catch let error as AudioPreviewDisposeFailure {
-            if verbose {
-                print("ERROR:CaptureManager.detachedCleanup - aqStop failed: \(error.stopError.domain)(\(error.stopError.code)): \(error.stopError.localizedFailureReason ?? error.stopError.localizedDescription)")
-                print("ERROR:CaptureManager.detachedCleanup - aqDispose failed: \(error.disposeError.domain)(\(error.disposeError.code)): \(error.disposeError.localizedFailureReason ?? error.disposeError.localizedDescription)")
-            }
-        }
-        catch let error as NSError {
-            if verbose { print("ERROR:CaptureManager.detachedCleanup - disposeAudioPreview failed: \(error.domain)(\(error.code)): \(error.localizedFailureReason ?? error.localizedDescription)") }
-        }
-        
         let device = self.currentDevice
         let writer = self.writer
         let videoPreview = self.videoPreview
         let parentView = self.parentView
+        let audioPreview = takeAudioPreviewForDisposal()
+        let audioPreviewInFlight = self.audioPreviewInFlight
+        let audioPreviewTeardownQueue = self.audioPreviewTeardownQueue
         let isRecording = self.recording
         let isVideoCaptureEnabled = self.videoCaptureEnabled
         let isAudioCaptureEnabled = self.audioCaptureEnabled
@@ -960,6 +1005,24 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         Task.detached {
             // Avoid capturing self in the deinit task
             if verbose { print("CaptureManager.\(#function) - Task started") }
+
+            if let audioPreview {
+                do {
+                    try await Self.finishDisposingAudioPreview(
+                        audioPreview,
+                        inFlight: audioPreviewInFlight,
+                        teardownQueue: audioPreviewTeardownQueue,
+                        teardown: Self.teardownAudioPreview
+                    )
+                } catch let error as AudioPreviewDisposeFailure {
+                    if verbose {
+                        print("ERROR:CaptureManager.detachedCleanup - aqStop failed: \(error.stopError.domain)(\(error.stopError.code)): \(error.stopError.localizedFailureReason ?? error.stopError.localizedDescription)")
+                        print("ERROR:CaptureManager.detachedCleanup - aqDispose failed: \(error.disposeError.domain)(\(error.disposeError.code)): \(error.disposeError.localizedFailureReason ?? error.disposeError.localizedDescription)")
+                    }
+                } catch let error as NSError {
+                    if verbose { print("ERROR:CaptureManager.detachedCleanup - disposeAudioPreview failed: \(error.domain)(\(error.code)): \(error.localizedFailureReason ?? error.localizedDescription)") }
+                }
+            }
             
             if isRecording, let writer = writer {
                 await writer.closeSession() // actor isolated (writer)
