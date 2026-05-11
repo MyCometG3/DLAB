@@ -100,6 +100,7 @@ final class DLABCaptureTests: XCTestCase {
         let manager = CaptureManager()
         let preview = CaptureAudioPreview.TestingDouble()
         let started = expectation(description: "audio preview use started")
+        let disposeStarted = expectation(description: "audio preview disposal started")
         let release = DispatchSemaphore(value: 0)
         let teardownCallCount = CounterBox()
 
@@ -115,12 +116,15 @@ final class DLABCaptureTests: XCTestCase {
         await fulfillment(of: [started], timeout: 1.0)
 
         let disposeTask = Task {
-            try await manager.testingDisposeAudioPreview { _ in
+            try await manager.testingDisposeAudioPreview(didTakePreview: {
+                disposeStarted.fulfill()
+            }) { _ in
                 teardownCallCount.increment()
             }
         }
 
-        try await Task.sleep(nanoseconds: 100_000_000)
+        await fulfillment(of: [disposeStarted], timeout: 1.0)
+        XCTAssertNil(manager.testingWithAudioPreview { _ in () })
         XCTAssertEqual(teardownCallCount.value, 0)
 
         release.signal()

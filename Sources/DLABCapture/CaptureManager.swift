@@ -355,9 +355,14 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     }
 
     internal func testingDisposeAudioPreview(
+        didTakePreview: (@Sendable () -> Void)? = nil,
         teardown: @escaping @Sendable (CaptureAudioPreview) throws -> Void
     ) async throws {
-        guard let preview = takeAudioPreviewForDisposal() else { return }
+        guard let preview = takeAudioPreviewForDisposal() else {
+            didTakePreview?()
+            return
+        }
+        didTakePreview?()
         try await finishDisposingAudioPreview(preview, teardown: teardown)
     }
     /* ============================================ */
