@@ -702,17 +702,6 @@ extension CaptureWriter {
     }
     
     /* ============================================ */
-    // MARK: - AudioFormatID Utility Functions
-    /* ============================================ */
-    
-    /// Check if the given format ID is part of the AAC family.
-    /// - Parameter formatID: The AudioFormatID to check
-    /// - Returns: true if the format ID is part of the AAC family, false otherwise
-    private func isAACFamily(_ formatID: UInt32) -> Bool {
-        return (formatID >= kAudioFormatMPEG4AAC && formatID <= kAudioFormatMPEG4AAC_HE_V2)
-    }
-    
-    /* ============================================ */
     // MARK: - CMBlockBuffer Utility Functions
     /* ============================================ */
     
