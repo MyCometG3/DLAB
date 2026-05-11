@@ -20,7 +20,7 @@ extension CaptureManager {
     
     private static let displayModeTiming: [DLABDisplayMode: DisplayModeTiming] = [
         .modeNTSC:           DisplayModeTiming(timescale: 30000, fps: 30.0/1.001),
-        .modeNTSC2398:       DisplayModeTiming(timescale: 24000, fps: 30.0/1.001),
+        .modeNTSC2398:       DisplayModeTiming(timescale: 24000, fps: 24.0/1.001),
         .modeNTSCp:          DisplayModeTiming(timescale: 60000, fps: 60.0/1.001),
         .modePAL:            DisplayModeTiming(timescale: 25000, fps: 25.0),
         .modePALp:           DisplayModeTiming(timescale: 50000, fps: 50.0),
