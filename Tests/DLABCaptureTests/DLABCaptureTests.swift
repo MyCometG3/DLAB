@@ -116,7 +116,7 @@ final class DLABCaptureTests: XCTestCase {
         await fulfillment(of: [started], timeout: 1.0)
 
         let disposeTask = Task {
-            try await manager.testingDisposeAudioPreview(didTakePreview: {
+            try await manager.testingDisposeAudioPreview(didTakeAudioPreviewState: {
                 disposeStarted.fulfill()
             }) { _ in
                 teardownCallCount.increment()

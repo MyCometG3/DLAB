@@ -358,14 +358,11 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     }
 
     internal func testingDisposeAudioPreview(
-        didTakePreview: (@Sendable () -> Void)? = nil,
+        didTakeAudioPreviewState: (@Sendable () -> Void)? = nil,
         teardown: @escaping @Sendable (CaptureAudioPreview) throws -> Void
     ) async throws {
-        guard let state = takeAudioPreviewForDisposal() else {
-            didTakePreview?()
-            return
-        }
-        didTakePreview?()
+        guard let state = takeAudioPreviewForDisposal() else { return }
+        didTakeAudioPreviewState?()
         try await finishDisposingAudioPreview(state, teardown: teardown)
     }
     /* ============================================ */
@@ -1002,7 +999,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         let writer = self.writer
         let videoPreview = self.videoPreview
         let parentView = self.parentView
-        let audioPreview = takeAudioPreviewForDisposal()
+        let audioPreviewState = takeAudioPreviewForDisposal()
         let audioPreviewTeardownQueue = self.audioPreviewTeardownQueue
         let isRecording = self.recording
         let isVideoCaptureEnabled = self.videoCaptureEnabled
@@ -1013,10 +1010,10 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
             // Avoid capturing self in the deinit task
             if verbose { print("CaptureManager.\(#function) - Task started") }
 
-            if let audioPreview {
+            if let audioPreviewState {
                 do {
                     try await Self.finishDisposingAudioPreview(
-                        audioPreview,
+                        audioPreviewState,
                         teardownQueue: audioPreviewTeardownQueue,
                         teardown: Self.teardownAudioPreview
                     )
