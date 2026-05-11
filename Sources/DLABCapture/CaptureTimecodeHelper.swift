@@ -202,8 +202,10 @@ class CaptureTimecodeHelper: NSObject {
             frameNumber64 = -frameNumber64
         }
         
-        // TODO
-        let frameNumber32: Int32 = Int32(frameNumber64)
+        guard let frameNumber32 = Int32(exactly: frameNumber64) else {
+            print("ERROR: Could not represent frame number in Int32 (\(frameNumber64)).")
+            return nil
+        }
         
         /* ============================================ */
         
