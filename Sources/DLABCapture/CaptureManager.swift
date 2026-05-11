@@ -126,6 +126,15 @@ private struct AudioPreviewDisposeFailure: LocalizedError {
     }
 }
 
+private final class AudioPreviewState: @unchecked Sendable {
+    let preview: CaptureAudioPreview
+    let inFlight = DispatchGroup()
+
+    init(preview: CaptureAudioPreview) {
+        self.preview = preview
+    }
+}
+
 /// Extension to make CaptureManager conform to Sendable for cross-actor usage.
 ///
 /// Concurrency model — mutable state falls into these categories:
@@ -248,27 +257,24 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     }
     /// AudioPreview object
     private let audioPreviewLock = UnfairLockBox()
-    private var audioPreviewStorage: CaptureAudioPreview? = nil
-    private var previewDisposed: Bool = false
-    private let audioPreviewInFlight = DispatchGroup()
+    private var audioPreviewState: AudioPreviewState? = nil
     private let audioPreviewTeardownQueue = DispatchQueue(label: "captureManager.audioPreviewTeardown")
     
     @discardableResult
     private func withAudioPreview<T>(_ body: (CaptureAudioPreview) throws -> T) rethrows -> T? {
-        let preview: CaptureAudioPreview? = audioPreviewLock.withLock {
-            guard !previewDisposed, let preview = audioPreviewStorage else { return nil }
-            audioPreviewInFlight.enter()
-            return preview
+        let state: AudioPreviewState? = audioPreviewLock.withLock {
+            guard let state = audioPreviewState else { return nil }
+            state.inFlight.enter()
+            return state
         }
-        guard let preview else { return nil }
-        defer { audioPreviewInFlight.leave() }
-        return try body(preview)
+        guard let state else { return nil }
+        defer { state.inFlight.leave() }
+        return try body(state.preview)
     }
     
     private func setAudioPreview(_ preview: CaptureAudioPreview?) {
         audioPreviewLock.withLock {
-            audioPreviewStorage = preview
-            previewDisposed = false
+            audioPreviewState = preview.map(AudioPreviewState.init)
         }
     }
     
@@ -301,37 +307,34 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         }
     }
 
-    private func takeAudioPreviewForDisposal() -> CaptureAudioPreview? {
-        audioPreviewLock.withLock { () -> CaptureAudioPreview? in
-            previewDisposed = true
-            let preview = audioPreviewStorage
-            audioPreviewStorage = nil
-            return preview
+    private func takeAudioPreviewForDisposal() -> AudioPreviewState? {
+        audioPreviewLock.withLock { () -> AudioPreviewState? in
+            let state = audioPreviewState
+            audioPreviewState = nil
+            return state
         }
     }
 
     private func finishDisposingAudioPreview(
-        _ preview: CaptureAudioPreview,
+        _ state: AudioPreviewState,
         teardown: @escaping @Sendable (CaptureAudioPreview) throws -> Void
     ) async throws {
         try await Self.finishDisposingAudioPreview(
-            preview,
-            inFlight: audioPreviewInFlight,
+            state,
             teardownQueue: audioPreviewTeardownQueue,
             teardown: teardown
         )
     }
 
     private static func finishDisposingAudioPreview(
-        _ preview: CaptureAudioPreview,
-        inFlight: DispatchGroup,
+        _ state: AudioPreviewState,
         teardownQueue: DispatchQueue,
         teardown: @escaping @Sendable (CaptureAudioPreview) throws -> Void
     ) async throws {
         try await withCheckedThrowingContinuation { continuation in
-            inFlight.notify(queue: teardownQueue) {
+            state.inFlight.notify(queue: teardownQueue) {
                 do {
-                    try teardown(preview)
+                    try teardown(state.preview)
                     continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)
@@ -341,8 +344,8 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     }
 
     private func disposeAudioPreview() async throws {
-        guard let preview = takeAudioPreviewForDisposal() else { return }
-        try await finishDisposingAudioPreview(preview, teardown: Self.teardownAudioPreview)
+        guard let state = takeAudioPreviewForDisposal() else { return }
+        try await finishDisposingAudioPreview(state, teardown: Self.teardownAudioPreview)
     }
 
     internal func testingSetAudioPreview(_ preview: CaptureAudioPreview?) {
@@ -358,12 +361,12 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         didTakePreview: (@Sendable () -> Void)? = nil,
         teardown: @escaping @Sendable (CaptureAudioPreview) throws -> Void
     ) async throws {
-        guard let preview = takeAudioPreviewForDisposal() else {
+        guard let state = takeAudioPreviewForDisposal() else {
             didTakePreview?()
             return
         }
         didTakePreview?()
-        try await finishDisposingAudioPreview(preview, teardown: teardown)
+        try await finishDisposingAudioPreview(state, teardown: teardown)
     }
     /* ============================================ */
     // MARK: - properties - Capturing video (set before capture)
@@ -1000,7 +1003,6 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         let videoPreview = self.videoPreview
         let parentView = self.parentView
         let audioPreview = takeAudioPreviewForDisposal()
-        let audioPreviewInFlight = self.audioPreviewInFlight
         let audioPreviewTeardownQueue = self.audioPreviewTeardownQueue
         let isRecording = self.recording
         let isVideoCaptureEnabled = self.videoCaptureEnabled
@@ -1015,7 +1017,6 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                 do {
                     try await Self.finishDisposingAudioPreview(
                         audioPreview,
-                        inFlight: audioPreviewInFlight,
                         teardownQueue: audioPreviewTeardownQueue,
                         teardown: Self.teardownAudioPreview
                     )
