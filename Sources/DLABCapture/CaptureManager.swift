@@ -898,17 +898,23 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
             }
             if isRunning, let device = device {
                 do { try device.stopStreams() }
-                catch { print("ERROR:CaptureManager.detachedCleanup - stopStreams failed: \(error.localizedDescription)") }
+                catch {
+                    if verbose { print("ERROR:CaptureManager.detachedCleanup - stopStreams failed: \(error.localizedDescription)") }
+                }
                 device.inputDelegate = nil
                 device.inputAncillaryPacketHandler = nil
                 
                 if isVideoCaptureEnabled {
                     do { try device.disableVideoInput() }
-                    catch { print("ERROR:CaptureManager.detachedCleanup - disableVideoInput failed: \(error.localizedDescription)") }
+                    catch {
+                        if verbose { print("ERROR:CaptureManager.detachedCleanup - disableVideoInput failed: \(error.localizedDescription)") }
+                    }
                 }
                 if isAudioCaptureEnabled {
                     do { try device.disableAudioInput() }
-                    catch { print("ERROR:CaptureManager.detachedCleanup - disableAudioInput failed: \(error.localizedDescription)") }
+                    catch {
+                        if verbose { print("ERROR:CaptureManager.detachedCleanup - disableAudioInput failed: \(error.localizedDescription)") }
+                    }
                 }
                 if let videoPreview = videoPreview {
                     await videoPreview.shutdown() // @MainActor
@@ -916,14 +922,20 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                 if parentView != nil {
                     DispatchQueue.main.async { [device] in
                         do { try device.setInputScreenPreviewTo(nil) }
-                        catch { print("ERROR:CaptureManager.detachedCleanup - setInputScreenPreviewTo failed: \(error.localizedDescription)") }
+                        catch {
+                            if verbose { print("ERROR:CaptureManager.detachedCleanup - setInputScreenPreviewTo failed: \(error.localizedDescription)") }
+                        }
                     }
                 }
                 if let audioPreview = audioPreview {
                     do { try audioPreview.aqStop() }
-                    catch { print("ERROR:CaptureManager.detachedCleanup - aqStop failed: \(error.localizedDescription)") }
+                    catch {
+                        if verbose { print("ERROR:CaptureManager.detachedCleanup - aqStop failed: \(error.localizedDescription)") }
+                    }
                     do { try audioPreview.aqDispose() }
-                    catch { print("ERROR:CaptureManager.detachedCleanup - aqDispose failed: \(error.localizedDescription)") }
+                    catch {
+                        if verbose { print("ERROR:CaptureManager.detachedCleanup - aqDispose failed: \(error.localizedDescription)") }
+                    }
                 }
             }
             
