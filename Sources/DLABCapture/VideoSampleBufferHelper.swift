@@ -231,6 +231,10 @@ internal final class VideoSampleBufferHelper: @unchecked Sendable {
             print("ERROR: VideoSampleBufferHelper.refreshImage - attachments is nil")
             return
         }
+        guard CFArrayGetCount(attachments) > 0 else {
+            print("ERROR: VideoSampleBufferHelper.refreshImage - attachments is empty")
+            return
+        }
         let ptr :UnsafeRawPointer = CFArrayGetValueAtIndex(attachments, 0)
         let dict = fromOpaque(ptr, CFMutableDictionary.self)
         let key = toOpaque(kCMSampleAttachmentKey_DisplayImmediately)
@@ -245,6 +249,10 @@ internal final class VideoSampleBufferHelper: @unchecked Sendable {
     public func donotDisplayImage(_ sampleBuffer: CMSampleBuffer) {
         guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true) else {
             print("ERROR: VideoSampleBufferHelper.donotDisplayImage - attachments is nil")
+            return
+        }
+        guard CFArrayGetCount(attachments) > 0 else {
+            print("ERROR: VideoSampleBufferHelper.donotDisplayImage - attachments is empty")
             return
         }
         let ptr :UnsafeRawPointer = CFArrayGetValueAtIndex(attachments, 0)
