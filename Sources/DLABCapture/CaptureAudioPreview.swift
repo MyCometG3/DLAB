@@ -227,16 +227,6 @@ class CaptureAudioPreview: NSObject, @unchecked Sendable {
         }
     }
     
-    private func createError(_ status :OSStatus, _ description :String?, _ failureReason :String?) -> NSError {
-        let domain = "com.MyCometG3.DLABCaptureManager.ErrorDomain"
-        let code = NSInteger(status)
-        let desc = description ?? "unknown description"
-        let reason = failureReason ?? "unknown failureReason"
-        let userInfo :[String:Any] = [NSLocalizedDescriptionKey:desc,
-                               NSLocalizedFailureReasonErrorKey:reason]
-        return NSError(domain: domain, code: code, userInfo: userInfo)
-    }
-    
     /// Extract ASBD from Audio CMSampleBuffer
     ///
     /// - Parameter sampleBuffer: Audio CMSampleBuffer
