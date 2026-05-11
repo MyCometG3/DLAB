@@ -102,6 +102,14 @@ private final class BoundedWorkQueue: @unchecked Sendable {
     }
 }
 
+private final class WeakParentViewBox: @unchecked Sendable {
+    weak var view: NSView?
+
+    init(view: NSView?) {
+        self.view = view
+    }
+}
+
 /// Extension to make CaptureManager conform to Sendable for cross-actor usage.
 ///
 /// Concurrency model — mutable state falls into these categories:
@@ -283,18 +291,18 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     /// Expected to be read/written on the `@MainActor`.
     public weak var parentView: NSView? = nil {
         didSet {
-            let requestedParentView = parentView
+            let requestedParentView = WeakParentViewBox(view: parentView)
             parentViewUpdateTask?.cancel()
             parentViewUpdateTask = Task { @MainActor [weak self] in
-                guard !Task.isCancelled, let self, let device = currentDevice else { return }
+                guard !Task.isCancelled, let self, let device = self.currentDevice else { return }
                 do {
-                    if let view = requestedParentView {
+                    if let view = requestedParentView.view {
                         try device.setInputScreenPreviewTo(view)
                     } else {
                         try device.setInputScreenPreviewTo(nil)
                     }
                 } catch let error as NSError {
-                    printVerbose("ERROR:\(error.domain)(\(error.code)): \(error.localizedFailureReason ?? "unknown reason")")
+                    self.printVerbose("ERROR:\(error.domain)(\(error.code)): \(error.localizedFailureReason ?? "unknown reason")")
                 }
             }
         }

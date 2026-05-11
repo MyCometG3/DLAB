@@ -65,6 +65,22 @@ final class DLABCaptureTests: XCTestCase {
         XCTAssertEqual(Int64(bigEndian: encodedFrameNumberBE), 2_147_558_400)
     }
 
+    func testCaptureTimecodeHelperRejectsLargeFrameNumbersForTimeCode32() throws {
+        let helper = CaptureTimecodeHelper(formatType: kCMTimeCodeFormatType_TimeCode32)
+        var smpteTime = CVSMPTETime()
+        smpteTime.type = 0
+        smpteTime.hours = 24_856
+
+        let dataBuffer = helper.testingPrepareTimeCodeDataBuffer(
+            smpteTime,
+            sizes: MemoryLayout<Int32>.size,
+            quanta: 24,
+            tcType: 0
+        )
+
+        XCTAssertNil(dataBuffer)
+    }
+
     func testCaptureManagerPrewarmRequiresRunningCapture() async throws {
         let manager = CaptureManager()
 
