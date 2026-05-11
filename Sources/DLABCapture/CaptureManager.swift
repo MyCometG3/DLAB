@@ -1114,6 +1114,23 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     /* ============================================ */
     
     /// Callback method implementation - DLABInputCaptureDelegate
+    /// - Note: Automatic format reconfiguration is not supported.
+    ///   Events are logged for diagnostics but no state is changed.
+    public nonisolated func processInputFormatChange(
+        with videoSetting: DLABVideoSetting?,
+        events: DLABVideoInputFormatChangedEvent,
+        flags: DLABDetectedVideoInputFormatFlag,
+        of sender: DLABDevice
+    ) {
+        guard sender === currentDevice else { return }
+        let modeName = videoSetting?.name ?? "nil"
+        Task { [weak self] in
+            guard let self else { return }
+            printVerbose("NOTICE: CaptureManager.processInputFormatChange - displayMode=\(modeName)")
+        }
+    }
+    
+    /// Callback method implementation - DLABInputCaptureDelegate
     /// - Parameters:
     ///   - sampleBuffer: CMSampleBuffer
     ///   - sender: DLABDevice
