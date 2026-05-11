@@ -1020,7 +1020,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                         print("ERROR:CaptureManager.detachedCleanup - aqDispose failed: \(error.disposeError.domain)(\(error.disposeError.code)): \(error.disposeError.localizedFailureReason ?? error.disposeError.localizedDescription)")
                     }
                 } catch let error as NSError {
-                    if verbose { print("ERROR:CaptureManager.detachedCleanup - disposeAudioPreview failed: \(error.domain)(\(error.code)): \(error.localizedFailureReason ?? error.localizedDescription)") }
+                    if verbose { print("ERROR:CaptureManager.detachedCleanup - audio preview teardown failed: \(error.domain)(\(error.code)): \(error.localizedFailureReason ?? error.localizedDescription)") }
                 }
             }
             

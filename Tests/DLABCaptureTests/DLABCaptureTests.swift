@@ -98,7 +98,7 @@ final class DLABCaptureTests: XCTestCase {
 
     func testCaptureManagerDisposeAudioPreviewWaitsForInFlightUse() async throws {
         let manager = CaptureManager()
-        let preview = CaptureAudioPreview()
+        let preview = CaptureAudioPreview.TestingDouble()
         let started = expectation(description: "audio preview use started")
         let release = DispatchSemaphore(value: 0)
         let teardownCallCount = CounterBox()
