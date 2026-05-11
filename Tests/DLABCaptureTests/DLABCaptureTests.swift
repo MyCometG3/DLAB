@@ -32,7 +32,8 @@ final class DLABCaptureTests: XCTestCase {
     func testCaptureManagerNativeTimingForNTSC2398() throws {
         let manager = CaptureManager()
 
-        XCTAssertEqual(manager.nativeTimescaleFor(.modeNTSC2398), 24000)
+        let timescale = try XCTUnwrap(manager.nativeTimescaleFor(.modeNTSC2398))
+        XCTAssertEqual(timescale, 24000)
         let fps = try XCTUnwrap(manager.nativeFPSFor(.modeNTSC2398))
         XCTAssertEqual(fps, Float(24.0 / 1.001), accuracy: 0.0001)
     }
