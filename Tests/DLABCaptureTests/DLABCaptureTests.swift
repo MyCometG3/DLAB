@@ -2,6 +2,21 @@ import XCTest
 import CoreMedia
 @testable import DLABCapture
 
+private final class CounterBox: @unchecked Sendable {
+    private let lock = UnfairLockBox()
+    private var valueStorage = 0
+
+    func increment() {
+        lock.withLock {
+            valueStorage += 1
+        }
+    }
+
+    var value: Int {
+        lock.withLock { valueStorage }
+    }
+}
+
 final class DLABCaptureTests: XCTestCase {
     func testCaptureManager() throws {
         XCTAssertNotNil(CaptureManager())
@@ -79,6 +94,44 @@ final class DLABCaptureTests: XCTestCase {
         )
 
         XCTAssertNil(dataBuffer)
+    }
+
+    func testCaptureManagerDisposeAudioPreviewWaitsForInFlightUse() async throws {
+        let manager = CaptureManager()
+        let preview = CaptureAudioPreview.TestingDouble()
+        let started = expectation(description: "audio preview use started")
+        let disposeStarted = expectation(description: "audio preview disposal started")
+        let release = DispatchSemaphore(value: 0)
+        let teardownCallCount = CounterBox()
+
+        manager.testingSetAudioPreview(preview)
+
+        DispatchQueue.global().async {
+            _ = manager.testingWithAudioPreview { _ in
+                started.fulfill()
+                _ = release.wait(timeout: .now() + 2.0)
+            }
+        }
+
+        await fulfillment(of: [started], timeout: 1.0)
+
+        let disposeTask = Task {
+            try await manager.testingDisposeAudioPreview(didTakeAudioPreviewState: {
+                disposeStarted.fulfill()
+            }) { _ in
+                teardownCallCount.increment()
+            }
+        }
+
+        await fulfillment(of: [disposeStarted], timeout: 1.0)
+        XCTAssertNil(manager.testingWithAudioPreview { _ in () })
+        XCTAssertEqual(teardownCallCount.value, 0)
+
+        release.signal()
+        try await disposeTask.value
+
+        XCTAssertEqual(teardownCallCount.value, 1)
+        XCTAssertNil(manager.testingWithAudioPreview { _ in () })
     }
 
     func testCaptureManagerPrewarmRequiresRunningCapture() async throws {
