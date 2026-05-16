@@ -990,18 +990,6 @@ actor CaptureWriter: NSObject {
             }
         }
         
-        #if false
-        // For H264 encoder (using Main 3.1 maximum bitrate)
-        compressionProperties[AVVideoAverageBitRateKey] = 14*1000*1000
-        compressionProperties[AVVideoMaxKeyFrameIntervalKey] = 29
-        compressionProperties[AVVideoMaxKeyFrameIntervalDurationKey] = 1.0
-        compressionProperties[AVVideoAllowFrameReorderingKey] = true
-        compressionProperties[AVVideoProfileLevelKey] = AVVideoProfileLevelH264Main31
-        compressionProperties[AVVideoH264EntropyModeKey] = AVVideoH264EntropyModeCABAC
-        compressionProperties[AVVideoExpectedSourceFrameRateKey] = 30
-        compressionProperties[AVVideoAverageNonDroppableFrameRateKey] = 10
-        #endif
-        
         if let fieldDetail = fieldDetail {
             // Use interlaced encoding
             let keyFieldCount = kVTCompressionPropertyKey_FieldCount as String
