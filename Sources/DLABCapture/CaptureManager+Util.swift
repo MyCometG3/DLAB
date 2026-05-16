@@ -124,8 +124,8 @@ extension CaptureManager {
     public func deviceList() -> [DLABDevice]? {
         let browser = DLABBrowser()
         _ = browser.registerDevicesForInput()
-        let devciceList = browser.allDevices
-        return devciceList
+        let deviceList = browser.allDevices
+        return deviceList
     }
     
     /// Supported Input VideoSettings for DLABDevice
