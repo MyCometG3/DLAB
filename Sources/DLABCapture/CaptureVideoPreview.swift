@@ -145,12 +145,6 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
         set { cache.displayLink = newValue }
     }
     
-    /// Suspend DisplayLink on idle (experimental)
-    private var suspendDisplayLinkOnIdle: Bool = false
-    
-    /// Idle monitor limitation in seconds (experimental)
-    private var FREEWHEELING_PERIOD_IN_SECONDS :Float64 = 1.0
-    
     /// VideoSampleBuffer to enqueue on Output Handler
     private var newSampleBuffer :CMSampleBuffer? = nil
     
@@ -782,29 +776,6 @@ public class CaptureVideoPreview: NSView, CALayerDelegate {
                 let targetTimestampStr = String(format: "%012.3f", targetTimestamp)
                 printDebug("CaptureVideoPreview.\(#function)",
                            "NOTICE:\(targetTimestampStr): No sampleBuffer to enqueue. ")
-            }
-        }
-        
-        // experimental: suspend DisplayLink if idle
-        if suspendDisplayLinkOnIdle {
-            // Suspend DisplayLink if idle
-            let idleTime = CVGetCurrentHostTime() - lastQueuedHostTime
-            let idleTimeInSec = timeIntervalFromHostTime(idleTime)
-            if idleTimeInSec > FREEWHEELING_PERIOD_IN_SECONDS {
-                let targetTimestampStr = String(format: "%012.3f", targetTimestamp)
-                let idleTimeInSecStr = String(format: "%08.3f", idleTimeInSec)
-                printVerbose("CaptureVideoPreview.\(#function)",
-                             "NOTICE:\(targetTimestampStr):\(idleTimeInSecStr): No enqueue - Consider to suspend DisplayLink.")
-                
-                _ = suspendDisplayLink()
-            }
-            else {
-                if debugLog {
-                    let targetTimestampStr = String(format: "%012.3f", targetTimestamp)
-                    let idleTimeInSecStr = String(format: "%08.3f", idleTimeInSec)
-                    printDebug("CaptureVideoPreview.\(#function)",
-                               "NOTICE:\(targetTimestampStr):\(idleTimeInSecStr): No enqueue.")
-                }
             }
         }
         return false
