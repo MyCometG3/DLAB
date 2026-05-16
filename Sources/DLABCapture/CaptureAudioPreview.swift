@@ -92,7 +92,7 @@ class CaptureAudioPreview: NSObject, @unchecked Sendable {
     fileprivate override init() {
         super.init()
     }
-
+    
     init?(_ audioFormatDescription :CMAudioFormatDescription) {
         super.init()
         
@@ -193,15 +193,15 @@ class CaptureAudioPreview: NSObject, @unchecked Sendable {
         
         // print("AudioPreview.init")
     }
-
+    
     internal final class TestingDouble: CaptureAudioPreview, @unchecked Sendable {
         internal override init() {
             super.init()
         }
-
+        
         internal override func aqStop() throws {
         }
-
+        
         internal override func aqDispose() throws {
         }
     }
