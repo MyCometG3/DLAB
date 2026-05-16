@@ -164,7 +164,7 @@ private final class DispatchWorkItemBox: @unchecked Sendable {
 /// Callers should await `closeSession()` before releasing the writer.
 /// Cleanup performed from `deinit` is a fallback path only, and it waits for
 /// `finishWriting` for a bounded amount of time before giving up.
-actor CaptureWriter: NSObject {
+actor CaptureWriter {
     typealias AssetWriterFactory = @Sendable (URL, AVFileType) throws -> AVAssetWriter
     public typealias DiagnosticHandler = @Sendable (CaptureWriterDiagnostic) -> Void
     public static let defaultFinishWritingTimeoutSeconds: TimeInterval = 5.0
@@ -329,8 +329,7 @@ actor CaptureWriter: NSObject {
     // MARK: - public init/deinit
     /* ============================================ */
     
-    override init() {
-        super.init()
+    init() {
         cache.finishWritingTimeoutSeconds = finishWritingTimeoutSecondsStorage
         
         // print("Writer.init")
