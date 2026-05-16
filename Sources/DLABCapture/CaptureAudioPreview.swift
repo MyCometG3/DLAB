@@ -356,23 +356,21 @@ class CaptureAudioPreview: NSObject, @unchecked Sendable {
         // Prepare audioBufferList from CMSampleBuffer
         var audioBufferList :AudioBufferList = AudioBufferList()
         var blockBuffer :CMBlockBuffer? = nil
-        do {
-            var bufferListSizeNeededOut :Int = 0
-            let sizeOfAudioBufferList = Int(MemoryLayout<AudioBufferList>.size)
-            let alignmentFlag = kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment
-            
-            status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer,
-                                                                             bufferListSizeNeededOut: &bufferListSizeNeededOut,
-                                                                             bufferListOut: &audioBufferList,
-                                                                             bufferListSize: sizeOfAudioBufferList,
-                                                                             blockBufferAllocator: kCFAllocatorDefault,
-                                                                             blockBufferMemoryAllocator: kCFAllocatorDefault,
-                                                                             flags: alignmentFlag,
-                                                                             blockBufferOut: &blockBuffer)
-            if status != 0 {
-                //print("ERROR: Failed to get audioBufferList. \(status)")
-                return status
-            }
+        var bufferListSizeNeededOut :Int = 0
+        let sizeOfAudioBufferList = Int(MemoryLayout<AudioBufferList>.size)
+        let alignmentFlag = kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment
+        
+        status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer,
+                                                                         bufferListSizeNeededOut: &bufferListSizeNeededOut,
+                                                                         bufferListOut: &audioBufferList,
+                                                                         bufferListSize: sizeOfAudioBufferList,
+                                                                         blockBufferAllocator: kCFAllocatorDefault,
+                                                                         blockBufferMemoryAllocator: kCFAllocatorDefault,
+                                                                         flags: alignmentFlag,
+                                                                         blockBufferOut: &blockBuffer)
+        if status != 0 {
+            //print("ERROR: Failed to get audioBufferList. \(status)")
+            return status
         }
         
         // Fill AudioQueueBuffer(dst) from AudioBufferList(src)

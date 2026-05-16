@@ -1355,9 +1355,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         
         if let videoPreview = videoPreview {
             let wrapper = UnsafeSampleBufferWrapper(sampleBuffer: sampleBuffer)
-            do {
-                await videoPreview.queueSampleBufferAsync(wrapper: wrapper)
-            }
+            await videoPreview.queueSampleBufferAsync(wrapper: wrapper)
         }
         
         if let setting = setting {

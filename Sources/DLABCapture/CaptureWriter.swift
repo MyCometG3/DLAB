@@ -491,11 +491,9 @@ actor CaptureWriter: NSObject {
     
     private func prepareDefaultURL() -> URL? {
         var movieFolders : [String]? = nil
-        do {
-            let moviesPathDirectory = FileManager.SearchPathDirectory.moviesDirectory
-            let userDomainMask = FileManager.SearchPathDomainMask.userDomainMask
-            movieFolders = NSSearchPathForDirectoriesInDomains(moviesPathDirectory, userDomainMask, true)
-        }
+        let moviesPathDirectory = FileManager.SearchPathDirectory.moviesDirectory
+        let userDomainMask = FileManager.SearchPathDomainMask.userDomainMask
+        movieFolders = NSSearchPathForDirectoriesInDomains(moviesPathDirectory, userDomainMask, true)
         
         if let movieFolder = movieFolders?.first {
             let formatter = DateFormatter()
@@ -655,49 +653,43 @@ actor CaptureWriter: NSObject {
     /* ============================================ */
     
     private func initializeTimeStamp() {
-        do {
-            // reset TS variables and duration
-            isInitialTSReady = false
-            startTime = CMTime.zero
-            endTime = CMTime.zero
-            duration = 0.0
-        }
+        // reset TS variables and duration
+        isInitialTSReady = false
+        startTime = CMTime.zero
+        endTime = CMTime.zero
+        duration = 0.0
     }
     
     private func updateTimeStamp(_ sampleBuffer: CMSampleBuffer) {
-        do {
-            // Update InitialTimeStamp and EndTimeStamp
-            let sbPresentation = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-            let sbDuration = CMSampleBufferGetDuration(sampleBuffer)
+        // Update InitialTimeStamp and EndTimeStamp
+        let sbPresentation = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let sbDuration = CMSampleBufferGetDuration(sampleBuffer)
+        
+        // Set startTime CMTime value
+        if let avAssetWriter = avAssetWriter, isInitialTSReady == false {
+            // Set initial SourceTime value for AVAssetWriter
+            avAssetWriter.startSession(atSourceTime: sbPresentation)
             
-            // Set startTime CMTime value
-            if let avAssetWriter = avAssetWriter, isInitialTSReady == false {
-                // Set initial SourceTime value for AVAssetWriter
-                avAssetWriter.startSession(atSourceTime: sbPresentation)
-                
-                // Set initial time stamp for session
-                isInitialTSReady = true
-                startTime = sbPresentation
-            }
-            
-            // Update endTime/duration CMTime value
-            endTime = CMTimeAdd(sbPresentation, sbDuration)
-            duration = CMTimeGetSeconds(CMTimeSubtract(endTime, startTime))
+            // Set initial time stamp for session
+            isInitialTSReady = true
+            startTime = sbPresentation
         }
+        
+        // Update endTime/duration CMTime value
+        endTime = CMTimeAdd(sbPresentation, sbDuration)
+        duration = CMTimeGetSeconds(CMTimeSubtract(endTime, startTime))
     }
     
     private func finalizeTimeStamp() {
-        do {
-            // Calc duration and Reset CMTime values
-            if isInitialTSReady == true {
-                duration = CMTimeGetSeconds(CMTimeSubtract(endTime, startTime))
-            } else {
-                duration = 0.0
-            }
-            isInitialTSReady = false
-            startTime = CMTime.zero
-            endTime = CMTime.zero
+        // Calc duration and Reset CMTime values
+        if isInitialTSReady == true {
+            duration = CMTimeGetSeconds(CMTimeSubtract(endTime, startTime))
+        } else {
+            duration = 0.0
         }
+        isInitialTSReady = false
+        startTime = CMTime.zero
+        endTime = CMTime.zero
     }
     
     /* ============================================ */
@@ -872,15 +864,13 @@ actor CaptureWriter: NSObject {
             }
         }
         if useTimecode {
-            do {
-                // Create AVAssetWriterInput for Timecode (SMPTE)
-                avAssetWriterInputTimecode = AVAssetWriterInput(mediaType: AVMediaType.timecode,
-                                                                outputSettings: nil)
-                
-                if let inputVideo = avAssetWriterInputVideo, let inputTimeCode = avAssetWriterInputTimecode {
-                    inputVideo.addTrackAssociation(withTrackOf: inputTimeCode,
-                                                   type: AVAssetTrack.AssociationType.timecode.rawValue)
-                }
+            // Create AVAssetWriterInput for Timecode (SMPTE)
+            avAssetWriterInputTimecode = AVAssetWriterInput(mediaType: AVMediaType.timecode,
+                                                            outputSettings: nil)
+            
+            if let inputVideo = avAssetWriterInputVideo, let inputTimeCode = avAssetWriterInputTimecode {
+                inputVideo.addTrackAssociation(withTrackOf: inputTimeCode,
+                                               type: AVAssetTrack.AssociationType.timecode.rawValue)
             }
             
             // Apply preferred timecode media timescale
@@ -974,20 +964,18 @@ actor CaptureWriter: NSObject {
         } else {
             codecString = AVVideoCodecType.h264.rawValue
         }
-        do {
-            if codecString == "avc1" {
-                compressionProperties[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel
-                compressionProperties[AVVideoH264EntropyModeKey] = AVVideoH264EntropyModeCABAC
-                compressionProperties[AVVideoAllowFrameReorderingKey] = true
-                compressionProperties[AVVideoMaxKeyFrameIntervalDurationKey] = 1.0
-                compressionProperties[AVVideoExpectedSourceFrameRateKey] = encodeVideoFrameRate
-            }
-            if codecString == "hvc1" {
-                compressionProperties[AVVideoProfileLevelKey] = kVTProfileLevel_HEVC_Main_AutoLevel as String
-                compressionProperties[AVVideoAllowFrameReorderingKey] = true
-                compressionProperties[AVVideoMaxKeyFrameIntervalDurationKey] = 1.0
-                compressionProperties[AVVideoExpectedSourceFrameRateKey] = encodeVideoFrameRate
-            }
+        if codecString == "avc1" {
+            compressionProperties[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel
+            compressionProperties[AVVideoH264EntropyModeKey] = AVVideoH264EntropyModeCABAC
+            compressionProperties[AVVideoAllowFrameReorderingKey] = true
+            compressionProperties[AVVideoMaxKeyFrameIntervalDurationKey] = 1.0
+            compressionProperties[AVVideoExpectedSourceFrameRateKey] = encodeVideoFrameRate
+        }
+        if codecString == "hvc1" {
+            compressionProperties[AVVideoProfileLevelKey] = kVTProfileLevel_HEVC_Main_AutoLevel as String
+            compressionProperties[AVVideoAllowFrameReorderingKey] = true
+            compressionProperties[AVVideoMaxKeyFrameIntervalDurationKey] = 1.0
+            compressionProperties[AVVideoExpectedSourceFrameRateKey] = encodeVideoFrameRate
         }
         
         if let fieldDetail = fieldDetail {
@@ -1024,21 +1012,19 @@ actor CaptureWriter: NSObject {
         if let sourceAudioFormatDescription = sourceAudioFormatDescription {
             var avaf : AVAudioFormat? = nil
             var aclData : NSData? = nil
-            do {
-                let asbd_p : UnsafePointer<AudioStreamBasicDescription>? =
-                    CMAudioFormatDescriptionGetStreamBasicDescription(sourceAudioFormatDescription)
-                if let asbd_p = asbd_p {
-                    var layoutSize : Int = 0
-                    let acl_p : UnsafePointer<AudioChannelLayout>? =
-                        CMAudioFormatDescriptionGetChannelLayout(sourceAudioFormatDescription, sizeOut: &layoutSize)
-                    if let acl_p = acl_p {
-                        let avacl = AVAudioChannelLayout.init(layout: acl_p)
-                        avaf = AVAudioFormat.init(streamDescription: asbd_p, channelLayout: avacl)
-                        aclData = NSData.init(bytes: UnsafeRawPointer(acl_p), length: layoutSize)
-                    } else {
-                        avaf = AVAudioFormat.init(streamDescription: asbd_p)
-                        aclData = nil
-                    }
+            let asbd_p : UnsafePointer<AudioStreamBasicDescription>? =
+                CMAudioFormatDescriptionGetStreamBasicDescription(sourceAudioFormatDescription)
+            if let asbd_p = asbd_p {
+                var layoutSize : Int = 0
+                let acl_p : UnsafePointer<AudioChannelLayout>? =
+                    CMAudioFormatDescriptionGetChannelLayout(sourceAudioFormatDescription, sizeOut: &layoutSize)
+                if let acl_p = acl_p {
+                    let avacl = AVAudioChannelLayout.init(layout: acl_p)
+                    avaf = AVAudioFormat.init(streamDescription: asbd_p, channelLayout: avacl)
+                    aclData = NSData.init(bytes: UnsafeRawPointer(acl_p), length: layoutSize)
+                } else {
+                    avaf = AVAudioFormat.init(streamDescription: asbd_p)
+                    aclData = nil
                 }
             }
             
