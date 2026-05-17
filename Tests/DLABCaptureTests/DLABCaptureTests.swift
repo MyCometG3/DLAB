@@ -1,4 +1,5 @@
 import XCTest
+import AVFoundation
 import CoreMedia
 @testable import DLABCapture
 
@@ -32,6 +33,85 @@ final class DLABCaptureTests: XCTestCase {
         //   Horizontal offset range: -7,+8, Vertical offset range: 0,0
         //   resulted (4:3) = 640:480 (pixel aspect ratio=10:11)
         //   resulted (16:9) = 853.333:480 (pixel aspect ratio=40:33)
+    }
+
+    func testVideoStyle8KPresets() throws {
+        struct Expectation {
+            let style: VideoStyle
+            let encodedSize: NSSize
+            let visibleSize: NSSize
+            let aspectRatio: NSSize
+            let cleanApertureSize: NSSize
+        }
+
+        let cases: [Expectation] = [
+            .init(style: .UHD8k_7680_4320_Full,
+                  encodedSize: NSSize(width: 7680, height: 4320),
+                  visibleSize: NSSize(width: 7680, height: 4320),
+                  aspectRatio: NSSize(width: 1, height: 1),
+                  cleanApertureSize: NSSize(width: 7680, height: 4320)),
+            .init(style: .DCI8k_8192_4320_Full,
+                  encodedSize: NSSize(width: 8192, height: 4320),
+                  visibleSize: NSSize(width: 8192, height: 4320),
+                  aspectRatio: NSSize(width: 1, height: 1),
+                  cleanApertureSize: NSSize(width: 8192, height: 4320)),
+            .init(style: .DCI8k_8192_4320_185,
+                  encodedSize: NSSize(width: 8192, height: 4320),
+                  visibleSize: NSSize(width: 7992, height: 4320),
+                  aspectRatio: NSSize(width: 1, height: 1),
+                  cleanApertureSize: NSSize(width: 7992, height: 4320)),
+            .init(style: .DCI8k_8192_4320_239,
+                  encodedSize: NSSize(width: 8192, height: 4320),
+                  visibleSize: NSSize(width: 8192, height: 3432),
+                  aspectRatio: NSSize(width: 1, height: 1),
+                  cleanApertureSize: NSSize(width: 8192, height: 3432))
+        ]
+
+        for testCase in cases {
+            XCTAssertEqual(testCase.style.encodedSize(), testCase.encodedSize)
+            XCTAssertEqual(testCase.style.visibleSize(), testCase.visibleSize)
+            XCTAssertEqual(testCase.style.aspectRatio(), testCase.aspectRatio)
+
+            let settings = testCase.style.settings(hOffset: 0, vOffset: 0)
+            XCTAssertEqual((settings[AVVideoWidthKey] as? NSNumber)?.doubleValue, testCase.encodedSize.width)
+            XCTAssertEqual((settings[AVVideoHeightKey] as? NSNumber)?.doubleValue, testCase.encodedSize.height)
+
+            let cleanAperture = try XCTUnwrap(settings[AVVideoCleanApertureKey] as? [String: Any])
+            XCTAssertEqual((cleanAperture[AVVideoCleanApertureWidthKey] as? NSNumber)?.doubleValue, testCase.cleanApertureSize.width)
+            XCTAssertEqual((cleanAperture[AVVideoCleanApertureHeightKey] as? NSNumber)?.doubleValue, testCase.cleanApertureSize.height)
+            XCTAssertEqual((cleanAperture[AVVideoCleanApertureHorizontalOffsetKey] as? NSNumber)?.doubleValue, 0)
+            XCTAssertEqual((cleanAperture[AVVideoCleanApertureVerticalOffsetKey] as? NSNumber)?.doubleValue, 0)
+
+            let pixelAspectRatio = try XCTUnwrap(settings[AVVideoPixelAspectRatioKey] as? [String: Any])
+            XCTAssertEqual((pixelAspectRatio[AVVideoPixelAspectRatioHorizontalSpacingKey] as? NSNumber)?.doubleValue, 1)
+            XCTAssertEqual((pixelAspectRatio[AVVideoPixelAspectRatioVerticalSpacingKey] as? NSNumber)?.doubleValue, 1)
+
+            let colorProperties = try XCTUnwrap(settings[AVVideoColorPropertiesKey] as? [String: Any])
+            XCTAssertEqual(colorProperties[AVVideoColorPrimariesKey] as? String, AVVideoColorPrimaries_ITU_R_2020)
+            XCTAssertEqual(colorProperties[AVVideoTransferFunctionKey] as? String, AVVideoTransferFunction_ITU_R_709_2)
+            XCTAssertEqual(colorProperties[AVVideoYCbCrMatrixKey] as? String, AVVideoYCbCrMatrix_ITU_R_2020)
+        }
+    }
+
+    func testCaptureManagerVideoStyleListIncludes8KPresets() throws {
+        let manager = CaptureManager()
+
+        XCTAssertEqual(
+            manager.videoStyleListOf(NSSize(width: 7680, height: 4320)),
+            [.UHD8k_7680_4320_Full]
+        )
+
+        XCTAssertEqual(
+            manager.videoStyleListOf(NSSize(width: 8192, height: 4320)),
+            [.DCI8k_8192_4320_Full, .DCI8k_8192_4320_239, .DCI8k_8192_4320_185]
+        )
+
+        XCTAssertEqual(
+            manager.videoStyleListOf(NSSize(width: 3840, height: 2160)),
+            [.UHD4k_3840_2160_Full]
+        )
+
+        XCTAssertNil(manager.videoStyleListOf(NSSize(width: 123, height: 456)))
     }
     
     func testDeviceList() throws {
