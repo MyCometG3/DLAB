@@ -200,7 +200,7 @@ public enum VideoStyle : String, Sendable {
             encodedWidth = 7680;    encodedHeight = 4320
             visibleWidth = 7680;    visibleHeight = 4320
             aspectHorizontal = 1;   aspectVertical = 1
-        
+            
         case .DCI8k_8192_4320_Full: // DCI8k FullAperture
             encodedWidth = 8192;    encodedHeight = 4320
             visibleWidth = 8192;    visibleHeight = 4320
