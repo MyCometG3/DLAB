@@ -1044,15 +1044,15 @@ static DLABTimecodeSetting* createTimecodeSetting(IDeckLinkVideoInputFrame* vide
         }];
         if (queryFailureReason) {
             [self post:[NSString stringWithFormat:@"%s (%d)", __PRETTY_FUNCTION__, __LINE__]
-                                                     reason:queryFailureReason
-                                                       code:queryResult
-                                                         to:error];
+                reason:queryFailureReason
+                  code:queryResult
+                    to:error];
             return nil;
         }
         if (result) {
             [self post:[NSString stringWithFormat:@"%s (%d)", __PRETTY_FUNCTION__, __LINE__]
-                                                     reason:@"IDeckLinkInput::DoesSupportVideoMode failed."
-                                                       code:result
+                reason:@"IDeckLinkInput::DoesSupportVideoMode failed."
+                  code:result
                     to:error];
             return nil;
         }

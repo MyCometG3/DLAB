@@ -735,15 +735,15 @@ NS_INLINE BOOL copyPlaneCVtoDL(DLABDevice* self, CVPixelBufferRef pixelBuffer, I
         }];
         if (queryFailureReason) {
             [self post:[NSString stringWithFormat:@"%s (%d)", __PRETTY_FUNCTION__, __LINE__]
-                                                      reason:queryFailureReason
-                                                        code:queryResult
-                                                          to:error];
+                reason:queryFailureReason
+                  code:queryResult
+                    to:error];
             return nil;
         }
         if (result) {
             [self post:[NSString stringWithFormat:@"%s (%d)", __PRETTY_FUNCTION__, __LINE__]
-                                                      reason:@"IDeckLinkOutput::DoesSupportVideoMode failed."
-                                                        code:result
+                reason:@"IDeckLinkOutput::DoesSupportVideoMode failed."
+                  code:result
                     to:error];
             return nil;
         }
