@@ -33,7 +33,58 @@ internal final class VideoSampleBufferHelper: @unchecked Sendable {
     /* ================================================ */
     
     /// CVPixelBufferPool
-    private var pixelBufferPool :CVPixelBufferPool? = nil
+    private let poolLock = UnfairLockBox()
+    private var pixelBufferPoolStorage: CVPixelBufferPool? = nil
+    
+    private func matchesPixelBufferPool(_ pool: CVPixelBufferPool, with dict: CFDictionary) -> Bool {
+        guard let pbAttr = CVPixelBufferPoolGetPixelBufferAttributes(pool) else {
+            return false
+        }
+        let typeOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferPixelFormatTypeKey)
+        let widthOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferWidthKey)
+        let heightOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferHeightKey)
+        let strideOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferBytesPerRowAlignmentKey)
+        return typeOK && widthOK && heightOK && strideOK
+    }
+    
+    private func getOrCreatePixelBufferPoolLocked(with dict: CFDictionary) -> CVPixelBufferPool? {
+        if let pool = pixelBufferPoolStorage {
+            if matchesPixelBufferPool(pool, with: dict) {
+                return pool
+            }
+            CVPixelBufferPoolFlush(pool, .excessBuffers)
+            pixelBufferPoolStorage = nil
+        }
+        let poolAttr = [kCVPixelBufferPoolMinimumBufferCountKey: 4 as CFNumber,
+                          kCVPixelBufferPoolMaximumBufferAgeKey: 0.5 as CFNumber] as CFDictionary
+        let err = CVPixelBufferPoolCreate(kCFAllocatorDefault, poolAttr, dict, &pixelBufferPoolStorage)
+        guard let pool = pixelBufferPoolStorage else {
+            print("ERROR: VideoSampleBufferHelper - Failed to create CVPixelBufferPool (err=\(err))")
+            return nil
+        }
+        return pool
+    }
+    
+    private func getOrCreatePixelBufferPool(with dict: CFDictionary) -> CVPixelBufferPool? {
+        poolLock.withLock {
+            getOrCreatePixelBufferPoolLocked(with: dict)
+        }
+    }
+    
+    private func takePixelBuffer(from pool: CVPixelBufferPool) -> CVPixelBuffer? {
+        var pbOut: CVPixelBuffer?
+        CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pbOut)
+        return pbOut
+    }
+    
+    private func takePixelBuffer(matching dict: CFDictionary) -> CVPixelBuffer? {
+        poolLock.withLock {
+            guard let pool = getOrCreatePixelBufferPoolLocked(with: dict) else {
+                return nil
+            }
+            return takePixelBuffer(from: pool)
+        }
+    }
     
     /* ================================================ */
     // MARK: - public functions (duplicate sampleBuffer)
@@ -125,27 +176,8 @@ internal final class VideoSampleBufferHelper: @unchecked Sendable {
             kCVPixelBufferBytesPerRowAlignmentKey: alignment as CFNumber,
             kCVPixelBufferIOSurfacePropertiesKey: [:] as [CFString : Any],
         ] as [CFString : Any] as CFDictionary
-        if let pool = pixelBufferPool, let pbAttr = CVPixelBufferPoolGetPixelBufferAttributes(pool) {
-            // Check if pixelBufferPool is compatible or not
-            let typeOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferPixelFormatTypeKey)
-            let widthOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferWidthKey)
-            let heightOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferHeightKey)
-            let strideOK = equalCFNumberInDictionary(dict, pbAttr, kCVPixelBufferBytesPerRowAlignmentKey)
-            if !(typeOK && widthOK && heightOK && strideOK) {
-                CVPixelBufferPoolFlush(pool, .excessBuffers)
-                self.pixelBufferPool = nil
-            }
-        }
-        if pixelBufferPool == nil {
-            let poolAttr = [
-                kCVPixelBufferPoolMinimumBufferCountKey: 4 as CFNumber
-            ] as CFDictionary
-            let err = CVPixelBufferPoolCreate(kCFAllocatorDefault, poolAttr, dict, &pixelBufferPool)
-            precondition(err == kCVReturnSuccess, "ERROR: Failed to create CVPixelBufferPool")
-        }
-        if let pixelBufferPool = pixelBufferPool {
-            CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pixelBufferPool, &pbOut)
-        }
+        
+        pbOut = takePixelBuffer(matching: dict)
         
         if let pbOut = pbOut {
             CVPixelBufferLockBaseAddress(pb, .readOnly)
@@ -196,14 +228,19 @@ internal final class VideoSampleBufferHelper: @unchecked Sendable {
     /// - Parameter sampleBuffer: CMSampleBuffer
     /// @discussion: This will force sampleBuffer to be displayed immediately.
     public func refreshImage(_ sampleBuffer: CMSampleBuffer) {
-        if let attachments :CFArray = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true) {
-            let ptr :UnsafeRawPointer = CFArrayGetValueAtIndex(attachments, 0)
-            let dict = fromOpaque(ptr, CFMutableDictionary.self)
-            let key = toOpaque(kCMSampleAttachmentKey_DisplayImmediately)
-            let value = toOpaque(kCFBooleanTrue)
-            CFDictionarySetValue(dict, key, value)
+        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true) else {
+            print("ERROR: VideoSampleBufferHelper.refreshImage - attachments is nil")
+            return
         }
-        else { preconditionFailure("attachments is nil") }
+        guard CFArrayGetCount(attachments) > 0 else {
+            print("ERROR: VideoSampleBufferHelper.refreshImage - attachments is empty")
+            return
+        }
+        let ptr :UnsafeRawPointer = CFArrayGetValueAtIndex(attachments, 0)
+        let dict = fromOpaque(ptr, CFMutableDictionary.self)
+        let key = toOpaque(kCMSampleAttachmentKey_DisplayImmediately)
+        let value = toOpaque(kCFBooleanTrue)
+        CFDictionarySetValue(dict, key, value)
     }
     
     /// Mark sampleBuffer as DoNotDisplay
@@ -211,14 +248,19 @@ internal final class VideoSampleBufferHelper: @unchecked Sendable {
     /// - Parameter sampleBuffer: CMSampleBuffer
     /// @discussion: This will prevent sampleBuffer from being displayed.
     public func donotDisplayImage(_ sampleBuffer: CMSampleBuffer) {
-        if let attachments :CFArray = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true) {
-            let ptr :UnsafeRawPointer = CFArrayGetValueAtIndex(attachments, 0)
-            let dict = fromOpaque(ptr, CFMutableDictionary.self)
-            let key = toOpaque(kCMSampleAttachmentKey_DoNotDisplay)
-            let value = toOpaque(kCFBooleanFalse)
-            CFDictionarySetValue(dict, key, value)
+        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true) else {
+            print("ERROR: VideoSampleBufferHelper.donotDisplayImage - attachments is nil")
+            return
         }
-        else { preconditionFailure("attachments is nil") }
+        guard CFArrayGetCount(attachments) > 0 else {
+            print("ERROR: VideoSampleBufferHelper.donotDisplayImage - attachments is empty")
+            return
+        }
+        let ptr :UnsafeRawPointer = CFArrayGetValueAtIndex(attachments, 0)
+        let dict = fromOpaque(ptr, CFMutableDictionary.self)
+        let key = toOpaque(kCMSampleAttachmentKey_DoNotDisplay)
+        let value = toOpaque(kCFBooleanTrue)
+        CFDictionarySetValue(dict, key, value)
     }
     
     /* ================================================ */
@@ -300,21 +342,11 @@ internal final class VideoSampleBufferHelper: @unchecked Sendable {
     // MARK: - private functions (sampleBuffer properties)
     /* ================================================ */
     
-    //
-    private var useCast :Bool = true
-    
     /// CFObject to UnsafeRawPointer conversion
     /// - Parameter obj: AnyObject to convert
     /// - Returns: UnsafeRawPointer
     private func toOpaque(_ obj :AnyObject) -> UnsafeRawPointer {
-        if useCast {
-            let ptr = unsafeBitCast(obj, to: UnsafeRawPointer.self)
-            return ptr
-        } else {
-            let mutablePtr :UnsafeMutableRawPointer = Unmanaged.passUnretained(obj).toOpaque()
-            let ptr :UnsafeRawPointer = UnsafeRawPointer(mutablePtr)
-            return ptr
-        }
+        UnsafeRawPointer(Unmanaged.passUnretained(obj).toOpaque())
     }
     
     /// UnsafeRawPointer to CFObject conversion

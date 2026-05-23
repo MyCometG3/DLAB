@@ -1,5 +1,22 @@
 import XCTest
+import AVFoundation
+import CoreMedia
 @testable import DLABCapture
+
+private final class CounterBox: @unchecked Sendable {
+    private let lock = UnfairLockBox()
+    private var valueStorage = 0
+
+    func increment() {
+        lock.withLock {
+            valueStorage += 1
+        }
+    }
+
+    var value: Int {
+        lock.withLock { valueStorage }
+    }
+}
 
 final class DLABCaptureTests: XCTestCase {
     func testCaptureManager() throws {
@@ -17,6 +34,93 @@ final class DLABCaptureTests: XCTestCase {
         //   resulted (4:3) = 640:480 (pixel aspect ratio=10:11)
         //   resulted (16:9) = 853.333:480 (pixel aspect ratio=40:33)
     }
+
+    func testVideoStyle8KPresets() throws {
+        struct Expectation {
+            let style: VideoStyle
+            let encodedSize: NSSize
+            let visibleSize: NSSize
+            let aspectRatio: NSSize
+            let cleanApertureSize: NSSize
+        }
+
+        let cases: [Expectation] = [
+            .init(style: .UHD8k_7680_4320_Full,
+                  encodedSize: NSSize(width: 7680, height: 4320),
+                  visibleSize: NSSize(width: 7680, height: 4320),
+                  aspectRatio: NSSize(width: 1, height: 1),
+                  cleanApertureSize: NSSize(width: 7680, height: 4320)),
+            .init(style: .DCI8k_8192_4320_Full,
+                  encodedSize: NSSize(width: 8192, height: 4320),
+                  visibleSize: NSSize(width: 8192, height: 4320),
+                  aspectRatio: NSSize(width: 1, height: 1),
+                  cleanApertureSize: NSSize(width: 8192, height: 4320)),
+            .init(style: .DCI8k_8192_4320_185,
+                  encodedSize: NSSize(width: 8192, height: 4320),
+                  visibleSize: NSSize(width: 7992, height: 4320),
+                  aspectRatio: NSSize(width: 1, height: 1),
+                  cleanApertureSize: NSSize(width: 7992, height: 4320)),
+            .init(style: .DCI8k_8192_4320_239,
+                  encodedSize: NSSize(width: 8192, height: 4320),
+                  visibleSize: NSSize(width: 8192, height: 3432),
+                  aspectRatio: NSSize(width: 1, height: 1),
+                  cleanApertureSize: NSSize(width: 8192, height: 3432))
+        ]
+
+        for testCase in cases {
+            XCTAssertEqual(testCase.style.encodedSize(), testCase.encodedSize)
+            XCTAssertEqual(testCase.style.visibleSize(), testCase.visibleSize)
+            XCTAssertEqual(testCase.style.aspectRatio(), testCase.aspectRatio)
+
+            let settings = testCase.style.settings(hOffset: 0, vOffset: 0)
+            let encodedWidth = try XCTUnwrap((settings[AVVideoWidthKey] as? NSNumber)?.doubleValue)
+            let encodedHeight = try XCTUnwrap((settings[AVVideoHeightKey] as? NSNumber)?.doubleValue)
+            XCTAssertEqual(encodedWidth, Double(testCase.encodedSize.width))
+            XCTAssertEqual(encodedHeight, Double(testCase.encodedSize.height))
+
+            let cleanAperture = try XCTUnwrap(settings[AVVideoCleanApertureKey] as? [String: Any])
+            let cleanApertureWidth = try XCTUnwrap((cleanAperture[AVVideoCleanApertureWidthKey] as? NSNumber)?.doubleValue)
+            let cleanApertureHeight = try XCTUnwrap((cleanAperture[AVVideoCleanApertureHeightKey] as? NSNumber)?.doubleValue)
+            let cleanApertureHorizontalOffset = try XCTUnwrap((cleanAperture[AVVideoCleanApertureHorizontalOffsetKey] as? NSNumber)?.doubleValue)
+            let cleanApertureVerticalOffset = try XCTUnwrap((cleanAperture[AVVideoCleanApertureVerticalOffsetKey] as? NSNumber)?.doubleValue)
+            XCTAssertEqual(cleanApertureWidth, Double(testCase.cleanApertureSize.width))
+            XCTAssertEqual(cleanApertureHeight, Double(testCase.cleanApertureSize.height))
+            XCTAssertEqual(cleanApertureHorizontalOffset, 0.0)
+            XCTAssertEqual(cleanApertureVerticalOffset, 0.0)
+
+            let pixelAspectRatio = try XCTUnwrap(settings[AVVideoPixelAspectRatioKey] as? [String: Any])
+            let pixelAspectRatioHorizontalSpacing = try XCTUnwrap((pixelAspectRatio[AVVideoPixelAspectRatioHorizontalSpacingKey] as? NSNumber)?.doubleValue)
+            let pixelAspectRatioVerticalSpacing = try XCTUnwrap((pixelAspectRatio[AVVideoPixelAspectRatioVerticalSpacingKey] as? NSNumber)?.doubleValue)
+            XCTAssertEqual(pixelAspectRatioHorizontalSpacing, 1.0)
+            XCTAssertEqual(pixelAspectRatioVerticalSpacing, 1.0)
+
+            let colorProperties = try XCTUnwrap(settings[AVVideoColorPropertiesKey] as? [String: Any])
+            XCTAssertEqual(colorProperties[AVVideoColorPrimariesKey] as? String, AVVideoColorPrimaries_ITU_R_2020)
+            XCTAssertEqual(colorProperties[AVVideoTransferFunctionKey] as? String, AVVideoTransferFunction_ITU_R_709_2)
+            XCTAssertEqual(colorProperties[AVVideoYCbCrMatrixKey] as? String, AVVideoYCbCrMatrix_ITU_R_2020)
+        }
+    }
+
+    func testCaptureManagerVideoStyleListIncludes8KPresets() throws {
+        let manager = CaptureManager()
+
+        XCTAssertEqual(
+            manager.videoStyleListOf(NSSize(width: 7680, height: 4320)),
+            [.UHD8k_7680_4320_Full]
+        )
+
+        XCTAssertEqual(
+            manager.videoStyleListOf(NSSize(width: 8192, height: 4320)),
+            [.DCI8k_8192_4320_Full, .DCI8k_8192_4320_239, .DCI8k_8192_4320_185]
+        )
+
+        XCTAssertEqual(
+            manager.videoStyleListOf(NSSize(width: 3840, height: 2160)),
+            [.UHD4k_3840_2160_Full]
+        )
+
+        XCTAssertNil(manager.videoStyleListOf(NSSize(width: 123, height: 456)))
+    }
     
     func testDeviceList() throws {
         let manager = CaptureManager()
@@ -26,6 +130,96 @@ final class DLABCaptureTests: XCTestCase {
     func testFindFirstDevice() throws {
         let manager = CaptureManager()
         XCTAssertNotNil(manager.findFirstDevice())
+    }
+
+    func testCaptureManagerNativeTimingForNTSC2398() throws {
+        let manager = CaptureManager()
+
+        let timescale = try XCTUnwrap(manager.nativeTimescaleFor(.modeNTSC2398))
+        XCTAssertEqual(timescale, 24000)
+        let fps = try XCTUnwrap(manager.nativeFPSFor(.modeNTSC2398))
+        XCTAssertEqual(fps, Float(24.0 / 1.001), accuracy: 0.0001)
+    }
+
+    func testCaptureTimecodeHelperAllowsLargeFrameNumbersForTimeCode64() throws {
+        let helper = CaptureTimecodeHelper(formatType: kCMTimeCodeFormatType_TimeCode64)
+        var smpteTime = CVSMPTETime()
+        smpteTime.type = 0
+        smpteTime.hours = 24_856
+
+        let dataBuffer = try XCTUnwrap(
+            helper.testingPrepareTimeCodeDataBuffer(
+                smpteTime,
+                sizes: MemoryLayout<Int64>.size,
+                quanta: 24,
+                tcType: 0
+            )
+        )
+
+        var encodedFrameNumberBE: Int64 = 0
+        let status = CMBlockBufferCopyDataBytes(
+            dataBuffer,
+            atOffset: 0,
+            dataLength: MemoryLayout<Int64>.size,
+            destination: &encodedFrameNumberBE
+        )
+
+        XCTAssertEqual(status, kCMBlockBufferNoErr)
+        XCTAssertEqual(Int64(bigEndian: encodedFrameNumberBE), 2_147_558_400)
+    }
+
+    func testCaptureTimecodeHelperRejectsLargeFrameNumbersForTimeCode32() throws {
+        let helper = CaptureTimecodeHelper(formatType: kCMTimeCodeFormatType_TimeCode32)
+        var smpteTime = CVSMPTETime()
+        smpteTime.type = 0
+        smpteTime.hours = 24_856
+
+        let dataBuffer = helper.testingPrepareTimeCodeDataBuffer(
+            smpteTime,
+            sizes: MemoryLayout<Int32>.size,
+            quanta: 24,
+            tcType: 0
+        )
+
+        XCTAssertNil(dataBuffer)
+    }
+
+    func testCaptureManagerDisposeAudioPreviewWaitsForInFlightUse() async throws {
+        let manager = CaptureManager()
+        let preview = CaptureAudioPreview.TestingDouble()
+        let started = expectation(description: "audio preview use started")
+        let disposeStarted = expectation(description: "audio preview disposal started")
+        let release = DispatchSemaphore(value: 0)
+        let teardownCallCount = CounterBox()
+
+        manager.testingSetAudioPreview(preview)
+
+        DispatchQueue.global().async {
+            _ = manager.testingWithAudioPreview { _ in
+                started.fulfill()
+                _ = release.wait(timeout: .now() + 2.0)
+            }
+        }
+
+        await fulfillment(of: [started], timeout: 1.0)
+
+        let disposeTask = Task {
+            try await manager.testingDisposeAudioPreview(didTakeAudioPreviewState: {
+                disposeStarted.fulfill()
+            }) { _ in
+                teardownCallCount.increment()
+            }
+        }
+
+        await fulfillment(of: [disposeStarted], timeout: 1.0)
+        XCTAssertNil(manager.testingWithAudioPreview { _ in () })
+        XCTAssertEqual(teardownCallCount.value, 0)
+
+        release.signal()
+        try await disposeTask.value
+
+        XCTAssertEqual(teardownCallCount.value, 1)
+        XCTAssertNil(manager.testingWithAudioPreview { _ in () })
     }
 
     func testCaptureManagerPrewarmRequiresRunningCapture() async throws {

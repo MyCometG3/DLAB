@@ -9,12 +9,18 @@
 import Foundation
 import CoreMedia
 
-class CaptureTimecodeHelper: NSObject {
+/// Timecode helper for CoreAudio SMPTETime extraction.
+///
+/// Marked `@unchecked Sendable` because:
+/// - `timeCodeFormatType` is immutable (`let`) after init
+/// - All public methods are read-only (no mutable state)
+/// - Instance storage in CaptureManager is lock-protected via `timecodeHelperLock`
+final class CaptureTimecodeHelper: NSObject, @unchecked Sendable {
     /// Special CoreAudio SMPTE Time - embeded as CMSampleBuffer attachment
     private let smpteTimeKey : String = "com.apple.cmio.buffer_attachment.core_audio_smpte_time"
     
     /// Default Timecode format : either TimeCode32 or TimeCode64
-    public var timeCodeFormatType : CMTimeCodeFormatType = kCMTimeCodeFormatType_TimeCode32
+    public let timeCodeFormatType: CMTimeCodeFormatType
     
     /* ============================================ */
     // MARK: - public init/deinit
@@ -24,9 +30,8 @@ class CaptureTimecodeHelper: NSObject {
     ///
     /// - Parameter typeValue: CMTimeCodeFormatType either Timecode32 or TimeCode64.
     init(formatType typeValue : CMTimeCodeFormatType) {
+        self.timeCodeFormatType = typeValue
         super.init()
-        
-        timeCodeFormatType = typeValue
         
         // print("TimecodeHelper.init")
     }
@@ -56,7 +61,7 @@ class CaptureTimecodeHelper: NSObject {
         
         // Extract SMPTETime from video sample
         guard let smpteTime = extractCVSMPTETime(from: videoSampleBuffer)
-            else { return nil }
+        else { return nil }
         
         // Evaluate TimeCode Quanta
         var quanta: UInt32 = 30
@@ -79,7 +84,7 @@ class CaptureTimecodeHelper: NSObject {
         
         // Prepare Data Buffer for new SampleBuffer
         guard let dataBuffer = prepareTimeCodeDataBuffer(smpteTime, sizes, quanta, tcType)
-            else { return nil }
+        else { return nil }
         
         /* ============================================ */
         
@@ -202,9 +207,6 @@ class CaptureTimecodeHelper: NSObject {
             frameNumber64 = -frameNumber64
         }
         
-        // TODO
-        let frameNumber32: Int32 = Int32(frameNumber64)
-        
         /* ============================================ */
         
         // Allocate BlockBuffer
@@ -226,6 +228,10 @@ class CaptureTimecodeHelper: NSObject {
         if let dataBuffer = dataBuffer {
             switch sizes {
             case MemoryLayout<Int32>.size:
+                guard let frameNumber32 = Int32(exactly: frameNumber64) else {
+                    print("ERROR: Could not represent frame number in Int32 (\(frameNumber64)).")
+                    return nil
+                }
                 var frameNumber32BE = frameNumber32.bigEndian
                 status = CMBlockBufferReplaceDataBytes(with: &frameNumber32BE,
                                                        blockBuffer: dataBuffer,
@@ -247,5 +253,12 @@ class CaptureTimecodeHelper: NSObject {
         }
         
         return dataBuffer
+    }
+    
+    internal func testingPrepareTimeCodeDataBuffer(_ smpteTime: CVSMPTETime,
+                                                   sizes: Int,
+                                                   quanta: UInt32,
+                                                   tcType: UInt32) -> CMBlockBuffer? {
+        prepareTimeCodeDataBuffer(smpteTime, sizes, quanta, tcType)
     }
 }

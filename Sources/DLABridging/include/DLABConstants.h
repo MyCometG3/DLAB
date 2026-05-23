@@ -315,9 +315,9 @@ typedef NS_ENUM(uint32_t, DLABColorspace)
     DLABColorspaceRec601                                          = /* 'r601' */ 0x72363031,
     DLABColorspaceRec709                                          = /* 'r709' */ 0x72373039,
     DLABColorspaceRec2020                                         = /* '2020' */ 0x32303230,
-    DLABColorspaceDolbyVisionNative                               = /* 'DoVi' */ 0x446F5669,	// For bmdDeckLinkConfigVideoOutputConversionColorspaceDestination with 12-bit RGB
-    DLABColorspaceP3D65                                           = /* 'P3D6' */ 0x50334436,	// For bmdDeckLinkConfigVideoOutputConversionColorspaceSource only
-    DLABColorspaceUnknown                                         = /* 'Ncol' */ 0x4E636F6C	// For disabling bmdDeckLinkConfigVideoOutputConversionColorspaceDestination
+    DLABColorspaceDolbyVisionNative                               = /* 'DoVi' */ 0x446F5669,    // For bmdDeckLinkConfigVideoOutputConversionColorspaceDestination with 12-bit RGB
+    DLABColorspaceP3D65                                           = /* 'P3D6' */ 0x50334436,    // For bmdDeckLinkConfigVideoOutputConversionColorspaceSource only
+    DLABColorspaceUnknown                                         = /* 'Ncol' */ 0x4E636F6C     // For disabling bmdDeckLinkConfigVideoOutputConversionColorspaceDestination
 };
 
 /* Enum BMDDynamicRange - SDR or HDR */
@@ -354,12 +354,12 @@ typedef NS_ENUM(uint32_t, DLABDeckLinkFrameMetadata)
     /* Integers */
     
     DLABDeckLinkFrameMetadataColorspace                           = /* 'cspc' */ 0x63737063,    // Colorspace of video frame (see BMDColorspace)
-    DLABDeckLinkFrameMetadataHDRElectroOpticalTransferFunc        = /* 'eotf' */ 0x656F7466,	// EOTF in range 0-7 as per CEA 861.3
+    DLABDeckLinkFrameMetadataHDRElectroOpticalTransferFunc        = /* 'eotf' */ 0x656F7466,    // EOTF in range 0-7 as per CEA 861.3
     DLABDeckLinkFrameMetadataRTPTimestamp                         = /* 'rtpt' */ 0x72747074,    // RTP timestamp
     
     /* Dolby Vision only - Bytes */
     
-    DLABDeckLinkFrameMetadataDolbyVision                          = /* 'dovi' */ 0x646F7669,	// Dolby Vision Metadata
+    DLABDeckLinkFrameMetadataDolbyVision                          = /* 'dovi' */ 0x646F7669,    // Dolby Vision Metadata
     
     /* CEA/SMPTE only - HDR Metadata Floats */
     
@@ -822,8 +822,8 @@ typedef NS_ENUM(uint32_t, DLABConfiguration)
     
     DLABConfigurationVideoOutputConnection                       = /* 'vocn' */ 0x766F636E,
     DLABConfigurationVideoOutputConversionMode                   = /* 'vocm' */ 0x766F636D,
-    DLABConfigurationVideoOutputConversionColorspaceDestination  = /* 'vccd' */ 0x76636364,	// Parameter is of type BMDColorspace
-    DLABConfigurationVideoOutputConversionColorspaceSource       = /* 'vccs' */ 0x76636373,	// Parameter is of type BMDColorspace
+    DLABConfigurationVideoOutputConversionColorspaceDestination  = /* 'vccd' */ 0x76636364,    // Parameter is of type BMDColorspace
+    DLABConfigurationVideoOutputConversionColorspaceSource       = /* 'vccs' */ 0x76636373,    // Parameter is of type BMDColorspace
     DLABConfigurationAnalogVideoOutputFlags                      = /* 'avof' */ 0x61766F66,
     DLABConfigurationReferenceInputTimingOffset                  = /* 'glot' */ 0x676C6F74,
     DLABConfigurationReferenceOutputMode                         = /* 'glOm' */ 0x676C4F6D,

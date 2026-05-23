@@ -261,7 +261,7 @@ NS_ASSUME_NONNULL_BEGIN
  @param buffer VANC buffer of specified lineNumber.
  @return Return FALSE if further call is not required.
  */
-typedef BOOL (^VANCHandler) (CMSampleTimingInfo timingInfo, uint32_t lineNumber, void* buffer) DEPRECATED_MSG_ATTRIBUTE("Deprecated since SDK 16.0.");
+typedef BOOL (^VANCHandler) (CMSampleTimingInfo timingInfo, uint32_t lineNumber, void* _Nonnull buffer) DEPRECATED_MSG_ATTRIBUTE("Deprecated since SDK 16.0.");
 
 /**
  VANC Packet support : VANC Capture callback block
@@ -327,10 +327,10 @@ typedef BOOL (^InputAncillaryPacketHandler) (CMSampleTimingInfo timingInfo,
  @return data VANC Packet data encoded in bmdAncillaryPacketFormatUInt8 format. Return nil if further calls are not required.
  */
 typedef NSData* _Nullable (^OutputVANCPacketHandler) (CMSampleTimingInfo timingInfo,
-                                                      uint8_t* did,
-                                                      uint8_t* sdid,
-                                                      uint32_t* lineNumber,
-                                                      uint8_t* dataStreamIndex);
+                                                      uint8_t* _Nonnull did,
+                                                      uint8_t* _Nonnull sdid,
+                                                      uint32_t* _Nonnull lineNumber,
+                                                      uint8_t* _Nonnull dataStreamIndex);
 
 /**
  Ancillary packet support : playback callback block (SDK 15.3 or later)
@@ -349,11 +349,11 @@ typedef NSData* _Nullable (^OutputVANCPacketHandler) (CMSampleTimingInfo timingI
  @return data Ancillary packet data encoded in bmdAncillaryPacketFormatUInt8 format. Return nil if further calls are not required.
  */
 typedef NSData* _Nullable (^OutputAncillaryPacketHandler) (CMSampleTimingInfo timingInfo,
-                                                           uint8_t* did,
-                                                           uint8_t* sdid,
-                                                           uint32_t* lineNumber,
-                                                           uint8_t* dataStreamIndex,
-                                                           DLABAncillaryDataSpace* dataSpace);
+                                                           uint8_t* _Nonnull did,
+                                                           uint8_t* _Nonnull sdid,
+                                                           uint32_t* _Nonnull lineNumber,
+                                                           uint8_t* _Nonnull dataStreamIndex,
+                                                           DLABAncillaryDataSpace* _Nonnull dataSpace);
 NS_ASSUME_NONNULL_END
 
 /* =================================================================================== */
@@ -399,6 +399,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  General DeckLink Device object, wrapper of multiple original DeckLink API C++ objects.
+ 
+ ### Property Access
+ - Public property access is generally serialized by the caller. The following lazy getters provide internal synchronization via @synchronized(self): outputVideoSettingArray, inputVideoSettingArray, deckControl.
+ - Delegate callbacks and block handlers are executed on the dedicated serial delegate queue; they do not require additional synchronization for internal state transitions.
+ 
+ ### Internal Concurrency
+ - Internal DeckLink I/O callbacks are dispatched to three dedicated serial queues: captureQueue, playbackQueue, and delegateQueue.
  */
 @interface DLABDevice : NSObject
 

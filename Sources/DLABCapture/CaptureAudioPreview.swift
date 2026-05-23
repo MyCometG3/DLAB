@@ -89,6 +89,10 @@ class CaptureAudioPreview: NSObject, @unchecked Sendable {
     ///
     /// - Parameter audioFormatDescription: CMAudioFormatDescription
     /// - Returns: AudioPreview Object if success, nil if failed.
+    fileprivate override init() {
+        super.init()
+    }
+    
     init?(_ audioFormatDescription :CMAudioFormatDescription) {
         super.init()
         
@@ -106,13 +110,15 @@ class CaptureAudioPreview: NSObject, @unchecked Sendable {
         
         // Create AudioQueue
         var status :OSStatus = -1
-        let inCallbackBlock :AudioQueueOutputCallbackBlock = {[asbd] (aqRef, aqBufRef) in
+        let inCallbackBlock :AudioQueueOutputCallbackBlock = {[weak self, asbd] (aqRef, aqBufRef) in
+            guard let self = self else { return }
             // - We do not enqueue in callback here (= pull model).
             // - Separate enqueue() is used instead (= push model).
             let wrapper = UnsafeAudioQueueWrapper(asbd: asbd,
                                                   aqRef: aqRef,
                                                   aqBufferRef: aqBufRef)
-            self.queueAsync { [wrapper] in
+            self.queueAsync { [weak self, wrapper] in
+                guard let self = self else { return }
                 let asbd = wrapper.asbd
                 let aqBufRef = wrapper.aqBufferRef
                 
@@ -190,6 +196,18 @@ class CaptureAudioPreview: NSObject, @unchecked Sendable {
         // print("AudioPreview.init")
     }
     
+    internal final class TestingDouble: CaptureAudioPreview, @unchecked Sendable {
+        internal override init() {
+            super.init()
+        }
+        
+        internal override func aqStop() throws {
+        }
+        
+        internal override func aqDispose() throws {
+        }
+    }
+    
     deinit {
         // print("AudioPreview.deinit")
         
@@ -225,16 +243,6 @@ class CaptureAudioPreview: NSObject, @unchecked Sendable {
         } else {
             queue.async(execute: block)
         }
-    }
-    
-    private func createError(_ status :OSStatus, _ description :String?, _ failureReason :String?) -> NSError {
-        let domain = "com.MyCometG3.DLABCaptureManager.ErrorDomain"
-        let code = NSInteger(status)
-        let desc = description ?? "unknown description"
-        let reason = failureReason ?? "unknown failureReason"
-        let userInfo :[String:Any] = [NSLocalizedDescriptionKey:desc,
-                                      NSLocalizedFailureReasonErrorKey:reason]
-        return NSError(domain: domain, code: code, userInfo: userInfo)
     }
     
     /// Extract ASBD from Audio CMSampleBuffer
@@ -350,23 +358,21 @@ class CaptureAudioPreview: NSObject, @unchecked Sendable {
         // Prepare audioBufferList from CMSampleBuffer
         var audioBufferList :AudioBufferList = AudioBufferList()
         var blockBuffer :CMBlockBuffer? = nil
-        do {
-            var bufferListSizeNeededOut :Int = 0
-            let sizeOfAudioBufferList = Int(MemoryLayout<AudioBufferList>.size)
-            let alignmentFlag = kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment
-            
-            status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer,
-                                                                             bufferListSizeNeededOut: &bufferListSizeNeededOut,
-                                                                             bufferListOut: &audioBufferList,
-                                                                             bufferListSize: sizeOfAudioBufferList,
-                                                                             blockBufferAllocator: kCFAllocatorDefault,
-                                                                             blockBufferMemoryAllocator: kCFAllocatorDefault,
-                                                                             flags: alignmentFlag,
-                                                                             blockBufferOut: &blockBuffer)
-            if status != 0 {
-                //print("ERROR: Failed to get audioBufferList. \(status)")
-                return status
-            }
+        var bufferListSizeNeededOut :Int = 0
+        let sizeOfAudioBufferList = Int(MemoryLayout<AudioBufferList>.size)
+        let alignmentFlag = kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment
+        
+        status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer,
+                                                                         bufferListSizeNeededOut: &bufferListSizeNeededOut,
+                                                                         bufferListOut: &audioBufferList,
+                                                                         bufferListSize: sizeOfAudioBufferList,
+                                                                         blockBufferAllocator: kCFAllocatorDefault,
+                                                                         blockBufferMemoryAllocator: kCFAllocatorDefault,
+                                                                         flags: alignmentFlag,
+                                                                         blockBufferOut: &blockBuffer)
+        if status != 0 {
+            //print("ERROR: Failed to get audioBufferList. \(status)")
+            return status
         }
         
         // Fill AudioQueueBuffer(dst) from AudioBufferList(src)

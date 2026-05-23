@@ -128,13 +128,15 @@ NS_INLINE BOOL DLABPerformDeckCommandWithStatusError(DLABDeckControl *self,
 
 - (dispatch_queue_t) deckQueue
 {
-    if (!_deckQueue) {
-        _deckQueue = dispatch_queue_create(kDeckQueue, DISPATCH_QUEUE_SERIAL);
-        deckQueueKey = &deckQueueKey;
-        void *unused = (__bridge void*)self;
-        dispatch_queue_set_specific(_deckQueue, deckQueueKey, unused, NULL);
+    @synchronized (self) {
+        if (!_deckQueue) {
+            _deckQueue = dispatch_queue_create(kDeckQueue, DISPATCH_QUEUE_SERIAL);
+            deckQueueKey = &deckQueueKey;
+            void *unused = (__bridge void*)self;
+            dispatch_queue_set_specific(_deckQueue, deckQueueKey, unused, NULL);
+        }
+        return _deckQueue;
     }
-    return _deckQueue;
 }
 
 - (void) deck_sync:(dispatch_block_t)block
@@ -158,7 +160,7 @@ NS_INLINE BOOL DLABPerformDeckCommandWithStatusError(DLABDeckControl *self,
          code:(NSInteger)result
            to:(NSError**)error;
 {
-    return DLABAssignError(error, description, failureReason, (NSInteger)result);
+    return DLABPostError(error, description, failureReason, result);
 }
 
 /* =================================================================================== */

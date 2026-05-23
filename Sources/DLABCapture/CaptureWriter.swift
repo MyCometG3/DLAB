@@ -164,11 +164,12 @@ private final class DispatchWorkItemBox: @unchecked Sendable {
 /// Callers should await `closeSession()` before releasing the writer.
 /// Cleanup performed from `deinit` is a fallback path only, and it waits for
 /// `finishWriting` for a bounded amount of time before giving up.
-actor CaptureWriter: NSObject {
+actor CaptureWriter {
     typealias AssetWriterFactory = @Sendable (URL, AVFileType) throws -> AVAssetWriter
     public typealias DiagnosticHandler = @Sendable (CaptureWriterDiagnostic) -> Void
     public static let defaultFinishWritingTimeoutSeconds: TimeInterval = 5.0
     private static let minimumFinishWritingTimeoutSeconds: TimeInterval = 0.001
+    public static let defaultEncodeAudioBitrate: UInt = 256 * 1000
     
     private static let defaultAssetWriterFactory: AssetWriterFactory = { url, fileType in
         try AVAssetWriter(outputURL: url, fileType: fileType)
@@ -240,7 +241,7 @@ actor CaptureWriter: NSObject {
     /// Set AudioCodec ID as kAudioFormatXXX.
     public var encodeAudioFormatID : AudioFormatID = kAudioFormatMPEG4AAC
     /// Set Audio target bitrate. default is 256 * 1000 bps.
-    public var encodeAudioBitrate : UInt = 256 * 1000
+    public var encodeAudioBitrate : UInt = CaptureWriter.defaultEncodeAudioBitrate
     /// Set YES to encode video.
     public var encodeVideo : Bool = true
     /// Set YES to use ProRes422 for video. No to use other codec like Apple H.264.
@@ -328,8 +329,7 @@ actor CaptureWriter: NSObject {
     // MARK: - public init/deinit
     /* ============================================ */
     
-    override init() {
-        super.init()
+    init() {
         cache.finishWritingTimeoutSeconds = finishWritingTimeoutSecondsStorage
         
         // print("Writer.init")
@@ -490,11 +490,9 @@ actor CaptureWriter: NSObject {
     
     private func prepareDefaultURL() -> URL? {
         var movieFolders : [String]? = nil
-        do {
-            let moviesPathDirectory = FileManager.SearchPathDirectory.moviesDirectory
-            let userDomainMask = FileManager.SearchPathDomainMask.userDomainMask
-            movieFolders = NSSearchPathForDirectoriesInDomains(moviesPathDirectory, userDomainMask, true)
-        }
+        let moviesPathDirectory = FileManager.SearchPathDirectory.moviesDirectory
+        let userDomainMask = FileManager.SearchPathDomainMask.userDomainMask
+        movieFolders = NSSearchPathForDirectoriesInDomains(moviesPathDirectory, userDomainMask, true)
         
         if let movieFolder = movieFolders?.first {
             let formatter = DateFormatter()
@@ -529,31 +527,37 @@ actor CaptureWriter: NSObject {
             // Apply movieTimeScale
             avAssetWriter.movieTimeScale = sampleTimescale
             
-            // Prepare AVAssetWriterInput(s)
-            let prepareInputStart = CFAbsoluteTimeGetCurrent()
-            try prepareInputMedia()
-            traceStartup("prepare-input-media \(elapsedMS(from: prepareInputStart))ms")
-            
-            // Register AVAssetWriterInput(s)
-            let registerInputStart = CFAbsoluteTimeGetCurrent()
-            try registerInputMedia()
-            traceStartup("register-input-media \(elapsedMS(from: registerInputStart))ms")
-            
-            // Start writing session
-            let startWritingStart = CFAbsoluteTimeGetCurrent()
-            let valid = avAssetWriter.startWriting()
-            traceStartup("start-writing \(elapsedMS(from: startWritingStart))ms")
-            if !valid {
-                if let error = avAssetWriter.error {
-                    let reason = error.localizedDescription
-                    throw CaptureWriterError.unexpectedErrorWhileOpeningSession(reason)
-                } else {
-                    let statusStr = self.descriptionForStatus(avAssetWriter.status)
-                    let reason = "AVAssetWriter did not start successfully. (\(statusStr))"
-                    throw CaptureWriterError.unexpectedErrorWhileOpeningSession(reason)
+            do {
+                // Prepare AVAssetWriterInput(s)
+                let prepareInputStart = CFAbsoluteTimeGetCurrent()
+                try prepareInputMedia()
+                traceStartup("prepare-input-media \(elapsedMS(from: prepareInputStart))ms")
+                
+                // Register AVAssetWriterInput(s)
+                let registerInputStart = CFAbsoluteTimeGetCurrent()
+                try registerInputMedia()
+                traceStartup("register-input-media \(elapsedMS(from: registerInputStart))ms")
+                
+                // Start writing session
+                let startWritingStart = CFAbsoluteTimeGetCurrent()
+                let valid = avAssetWriter.startWriting()
+                traceStartup("start-writing \(elapsedMS(from: startWritingStart))ms")
+                if !valid {
+                    if let error = avAssetWriter.error {
+                        let reason = error.localizedDescription
+                        throw CaptureWriterError.unexpectedErrorWhileOpeningSession(reason)
+                    } else {
+                        let statusStr = self.descriptionForStatus(avAssetWriter.status)
+                        let reason = "AVAssetWriter did not start successfully. (\(statusStr))"
+                        throw CaptureWriterError.unexpectedErrorWhileOpeningSession(reason)
+                    }
                 }
+                traceStartup("open-session-total \(elapsedMS(from: startAt))ms")
+            } catch {
+                avAssetWriter.cancelWriting()
+                cleanUp()
+                throw error
             }
-            traceStartup("open-session-total \(elapsedMS(from: startAt))ms")
         } else {
             let reason = "AVAssetWriter is not available."
             throw CaptureWriterError.assetWriterIsNotAvailable(reason)
@@ -654,49 +658,43 @@ actor CaptureWriter: NSObject {
     /* ============================================ */
     
     private func initializeTimeStamp() {
-        do {
-            // reset TS variables and duration
-            isInitialTSReady = false
-            startTime = CMTime.zero
-            endTime = CMTime.zero
-            duration = 0.0
-        }
+        // reset TS variables and duration
+        isInitialTSReady = false
+        startTime = CMTime.zero
+        endTime = CMTime.zero
+        duration = 0.0
     }
     
     private func updateTimeStamp(_ sampleBuffer: CMSampleBuffer) {
-        do {
-            // Update InitialTimeStamp and EndTimeStamp
-            let sbPresentation = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-            let sbDuration = CMSampleBufferGetDuration(sampleBuffer)
+        // Update InitialTimeStamp and EndTimeStamp
+        let sbPresentation = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let sbDuration = CMSampleBufferGetDuration(sampleBuffer)
+        
+        // Set startTime CMTime value
+        if let avAssetWriter = avAssetWriter, isInitialTSReady == false {
+            // Set initial SourceTime value for AVAssetWriter
+            avAssetWriter.startSession(atSourceTime: sbPresentation)
             
-            // Set startTime CMTime value
-            if let avAssetWriter = avAssetWriter, isInitialTSReady == false {
-                // Set initial SourceTime value for AVAssetWriter
-                avAssetWriter.startSession(atSourceTime: sbPresentation)
-                
-                // Set initial time stamp for session
-                isInitialTSReady = true
-                startTime = sbPresentation
-            }
-            
-            // Update endTime/duration CMTime value
-            endTime = CMTimeAdd(sbPresentation, sbDuration)
-            duration = CMTimeGetSeconds(CMTimeSubtract(endTime, startTime))
+            // Set initial time stamp for session
+            isInitialTSReady = true
+            startTime = sbPresentation
         }
+        
+        // Update endTime/duration CMTime value
+        endTime = CMTimeAdd(sbPresentation, sbDuration)
+        duration = CMTimeGetSeconds(CMTimeSubtract(endTime, startTime))
     }
     
     private func finalizeTimeStamp() {
-        do {
-            // Calc duration and Reset CMTime values
-            if isInitialTSReady == true {
-                duration = CMTimeGetSeconds(CMTimeSubtract(endTime, startTime))
-            } else {
-                duration = 0.0
-            }
-            isInitialTSReady = false
-            startTime = CMTime.zero
-            endTime = CMTime.zero
+        // Calc duration and Reset CMTime values
+        if isInitialTSReady == true {
+            duration = CMTimeGetSeconds(CMTimeSubtract(endTime, startTime))
+        } else {
+            duration = 0.0
         }
+        isInitialTSReady = false
+        startTime = CMTime.zero
+        endTime = CMTime.zero
     }
     
     /* ============================================ */
@@ -871,15 +869,13 @@ actor CaptureWriter: NSObject {
             }
         }
         if useTimecode {
-            do {
-                // Create AVAssetWriterInput for Timecode (SMPTE)
-                avAssetWriterInputTimecode = AVAssetWriterInput(mediaType: AVMediaType.timecode,
-                                                                outputSettings: nil)
-                
-                if let inputVideo = avAssetWriterInputVideo, let inputTimeCode = avAssetWriterInputTimecode {
-                    inputVideo.addTrackAssociation(withTrackOf: inputTimeCode,
-                                                   type: AVAssetTrack.AssociationType.timecode.rawValue)
-                }
+            // Create AVAssetWriterInput for Timecode (SMPTE)
+            avAssetWriterInputTimecode = AVAssetWriterInput(mediaType: AVMediaType.timecode,
+                                                            outputSettings: nil)
+            
+            if let inputVideo = avAssetWriterInputVideo, let inputTimeCode = avAssetWriterInputTimecode {
+                inputVideo.addTrackAssociation(withTrackOf: inputTimeCode,
+                                               type: AVAssetTrack.AssociationType.timecode.rawValue)
             }
             
             // Apply preferred timecode media timescale
@@ -973,33 +969,19 @@ actor CaptureWriter: NSObject {
         } else {
             codecString = AVVideoCodecType.h264.rawValue
         }
-        do {
-            if codecString == "avc1" {
-                compressionProperties[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel
-                compressionProperties[AVVideoH264EntropyModeKey] = AVVideoH264EntropyModeCABAC
-                compressionProperties[AVVideoAllowFrameReorderingKey] = true
-                compressionProperties[AVVideoMaxKeyFrameIntervalDurationKey] = 1.0
-                compressionProperties[AVVideoExpectedSourceFrameRateKey] = encodeVideoFrameRate
-            }
-            if codecString == "hvc1" {
-                compressionProperties[AVVideoProfileLevelKey] = kVTProfileLevel_HEVC_Main_AutoLevel as String
-                compressionProperties[AVVideoAllowFrameReorderingKey] = true
-                compressionProperties[AVVideoMaxKeyFrameIntervalDurationKey] = 1.0
-                compressionProperties[AVVideoExpectedSourceFrameRateKey] = encodeVideoFrameRate
-            }
+        if codecString == "avc1" {
+            compressionProperties[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel
+            compressionProperties[AVVideoH264EntropyModeKey] = AVVideoH264EntropyModeCABAC
+            compressionProperties[AVVideoAllowFrameReorderingKey] = true
+            compressionProperties[AVVideoMaxKeyFrameIntervalDurationKey] = 1.0
+            compressionProperties[AVVideoExpectedSourceFrameRateKey] = encodeVideoFrameRate
         }
-        
-        #if false
-        // For H264 encoder (using Main 3.1 maximum bitrate)
-        compressionProperties[AVVideoAverageBitRateKey] = 14*1000*1000
-        compressionProperties[AVVideoMaxKeyFrameIntervalKey] = 29
-        compressionProperties[AVVideoMaxKeyFrameIntervalDurationKey] = 1.0
-        compressionProperties[AVVideoAllowFrameReorderingKey] = true
-        compressionProperties[AVVideoProfileLevelKey] = AVVideoProfileLevelH264Main31
-        compressionProperties[AVVideoH264EntropyModeKey] = AVVideoH264EntropyModeCABAC
-        compressionProperties[AVVideoExpectedSourceFrameRateKey] = 30
-        compressionProperties[AVVideoAverageNonDroppableFrameRateKey] = 10
-        #endif
+        if codecString == "hvc1" {
+            compressionProperties[AVVideoProfileLevelKey] = kVTProfileLevel_HEVC_Main_AutoLevel as String
+            compressionProperties[AVVideoAllowFrameReorderingKey] = true
+            compressionProperties[AVVideoMaxKeyFrameIntervalDurationKey] = 1.0
+            compressionProperties[AVVideoExpectedSourceFrameRateKey] = encodeVideoFrameRate
+        }
         
         if let fieldDetail = fieldDetail {
             // Use interlaced encoding
@@ -1035,21 +1017,19 @@ actor CaptureWriter: NSObject {
         if let sourceAudioFormatDescription = sourceAudioFormatDescription {
             var avaf : AVAudioFormat? = nil
             var aclData : NSData? = nil
-            do {
-                let asbd_p : UnsafePointer<AudioStreamBasicDescription>? =
-                    CMAudioFormatDescriptionGetStreamBasicDescription(sourceAudioFormatDescription)
-                if let asbd_p = asbd_p {
-                    var layoutSize : Int = 0
-                    let acl_p : UnsafePointer<AudioChannelLayout>? =
-                        CMAudioFormatDescriptionGetChannelLayout(sourceAudioFormatDescription, sizeOut: &layoutSize)
-                    if let acl_p = acl_p {
-                        let avacl = AVAudioChannelLayout.init(layout: acl_p)
-                        avaf = AVAudioFormat.init(streamDescription: asbd_p, channelLayout: avacl)
-                        aclData = NSData.init(bytes: UnsafeRawPointer(acl_p), length: layoutSize)
-                    } else {
-                        avaf = AVAudioFormat.init(streamDescription: asbd_p)
-                        aclData = nil
-                    }
+            let asbd_p : UnsafePointer<AudioStreamBasicDescription>? =
+                CMAudioFormatDescriptionGetStreamBasicDescription(sourceAudioFormatDescription)
+            if let asbd_p = asbd_p {
+                var layoutSize : Int = 0
+                let acl_p : UnsafePointer<AudioChannelLayout>? =
+                    CMAudioFormatDescriptionGetChannelLayout(sourceAudioFormatDescription, sizeOut: &layoutSize)
+                if let acl_p = acl_p {
+                    let avacl = AVAudioChannelLayout.init(layout: acl_p)
+                    avaf = AVAudioFormat.init(streamDescription: asbd_p, channelLayout: avacl)
+                    aclData = NSData.init(bytes: UnsafeRawPointer(acl_p), length: layoutSize)
+                } else {
+                    avaf = AVAudioFormat.init(streamDescription: asbd_p)
+                    aclData = nil
                 }
             }
             
@@ -1180,13 +1160,6 @@ actor CaptureWriter: NSObject {
     // MARK: -
     /* ============================================ */
     
-    /// Check if the given format ID is part of the AAC family.
-    /// - Parameter formatID: The AudioFormatID to check
-    /// - Returns: true if the format ID is part of the AAC family, false otherwise
-    private func isAACFamily(_ formatID: UInt32) -> Bool {
-        return (formatID >= kAudioFormatMPEG4AAC && formatID <= kAudioFormatMPEG4AAC_HE_V2)
-    }
-    
     /// AAC encoder bitrate range
     private func queryBitrateRange<T: BinaryInteger>(channelCount: T) -> (min: T, max: T) {
         precondition(channelCount > 0, "Channel count must be positive")
@@ -1214,7 +1187,7 @@ actor CaptureWriter: NSObject {
             .failed     : "AVAssetWriterStatus.Failed",
             .cancelled  : "AVAssetWriterStatus.Cancelled"
         ]
-        let statusStr :String = statusArray[status]!
+        let statusStr = statusArray[status] ?? "Unknown(\(status.rawValue))"
         
         return statusStr
     }
@@ -1256,7 +1229,7 @@ extension CaptureWriter {
         // output encoding setting
         public var encodeAudio: Bool = false
         public var encodeAudioFormatID: AudioFormatID = kAudioFormatMPEG4AAC
-        public var encodeAudioBitrate: UInt = 256 * 1024
+        public var encodeAudioBitrate: UInt = CaptureWriter.defaultEncodeAudioBitrate
         public var encodeVideo: Bool = true
         public var encodeProRes422: Bool = true
         public var encodeVideoCodecType: CMVideoCodecType? = kCMVideoCodecType_H264

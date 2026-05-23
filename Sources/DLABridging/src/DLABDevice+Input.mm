@@ -247,7 +247,7 @@ NS_INLINE NSNumber * DLABInputUInt32Value(DLABDevice *self,
 /* =================================================================================== */
 
 NS_INLINE BOOL copyBufferDLtoCV(DLABDevice* self, IDeckLinkVideoFrame* videoFrame, CVPixelBufferRef pixelBuffer) {
-    assert(videoFrame && pixelBuffer);
+    if (!videoFrame || !pixelBuffer) return FALSE;
     
     BOOL pre1403 = [DLABVersionChecker checkPre1403];
     
@@ -268,8 +268,12 @@ NS_INLINE BOOL copyBufferDLtoCV(DLABDevice* self, IDeckLinkVideoFrame* videoFram
         if (!pre1403) {
             VideoBufferGetBaseAddress(videoBuffer, &src);
         } else {
-            IDeckLinkVideoFrame_v14_2_1* videoFrame_v14_2_1 = (IDeckLinkVideoFrame_v14_2_1*)videoFrame;
-            videoFrame_v14_2_1->GetBytes(&src);
+            IDeckLinkVideoFrame_v14_2_1* videoFrame_v14_2_1 = NULL;
+            HRESULT queryResult = DLABQueryInterfaceAny(videoFrame, &videoFrame_v14_2_1, IID_IDeckLinkVideoFrame_v14_2_1);
+            if (queryResult == S_OK && videoFrame_v14_2_1) {
+                videoFrame_v14_2_1->GetBytes(&src);
+            }
+            DLABReleaseIfNeeded(videoFrame_v14_2_1);
         }
         
         vImage_Buffer sourceBuffer = {0};
@@ -291,12 +295,14 @@ NS_INLINE BOOL copyBufferDLtoCV(DLABDevice* self, IDeckLinkVideoFrame* videoFram
             } else {
                 pixelSize = pixelSizeForCV(pixelBuffer);
             }
-            assert(pixelSize > 0);
-            
-            vImage_Error convErr = kvImageNoError;
-            convErr = vImageCopyBuffer(&sourceBuffer, &targetBuffer,
-                                       pixelSize, kvImageNoFlags);
-            result = (convErr == kvImageNoError);
+            if (pixelSize == 0) {
+                result = false;
+            } else {
+                vImage_Error convErr = kvImageNoError;
+                convErr = vImageCopyBuffer(&sourceBuffer, &targetBuffer,
+                                           pixelSize, kvImageNoFlags);
+                result = (convErr == kvImageNoError);
+            }
         }
         CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
     }
@@ -309,7 +315,7 @@ NS_INLINE BOOL copyBufferDLtoCV(DLABDevice* self, IDeckLinkVideoFrame* videoFram
 }
 
 NS_INLINE BOOL copyPlaneDLtoCV(DLABDevice* self, IDeckLinkVideoInputFrame* videoFrame, CVPixelBufferRef pixelBuffer) {
-    assert(videoFrame && pixelBuffer);
+    if (!videoFrame || !pixelBuffer) return FALSE;
     
     BOOL pre1403 = [DLABVersionChecker checkPre1403];
     
@@ -339,8 +345,12 @@ NS_INLINE BOOL copyPlaneDLtoCV(DLABDevice* self, IDeckLinkVideoInputFrame* video
         if (!pre1403) {
             VideoBufferGetBaseAddress(videoBuffer, &src);
         } else {
-            IDeckLinkVideoFrame_v14_2_1* videoFrame_v14_2_1 = (IDeckLinkVideoFrame_v14_2_1*)videoFrame;
-            videoFrame_v14_2_1->GetBytes(&src);
+            IDeckLinkVideoFrame_v14_2_1* videoFrame_v14_2_1 = NULL;
+            HRESULT queryResult = DLABQueryInterfaceAny(videoFrame, &videoFrame_v14_2_1, IID_IDeckLinkVideoFrame_v14_2_1);
+            if (queryResult == S_OK && videoFrame_v14_2_1) {
+                videoFrame_v14_2_1->GetBytes(&src);
+            }
+            DLABReleaseIfNeeded(videoFrame_v14_2_1);
         }
         
         if (dst && src) {
@@ -349,8 +359,8 @@ NS_INLINE BOOL copyPlaneDLtoCV(DLABDevice* self, IDeckLinkVideoInputFrame* video
             } else { // line copy with different stride
                 size_t length = MIN(pbRowByte, ifRowByte);
                 for (size_t line = 0; line < ifHeight; line++) {
-                    char* srcAddr = (char*)src + pbRowByte * line;
-                    char* dstAddr = (char*)dst + ifRowByte * line;
+                    char* srcAddr = (char*)src + ifRowByte * line;
+                    char* dstAddr = (char*)dst + pbRowByte * line;
                     memcpy(dstAddr, srcAddr, length);
                 }
             }
@@ -372,7 +382,7 @@ NS_INLINE BOOL copyPlaneDLtoCV(DLABDevice* self, IDeckLinkVideoInputFrame* video
     
     BOOL ready = false;
     OSType cvPixelFormat = self.inputVideoSetting.cvPixelFormatType;
-    assert(cvPixelFormat);
+    if (!cvPixelFormat) return NULL;
     
     // Check pool, and create if required
     CVPixelBufferPoolRef pool = self.inputPixelBufferPool;
@@ -629,7 +639,7 @@ NS_INLINE BOOL copyPlaneDLtoCV(DLABDevice* self, IDeckLinkVideoInputFrame* video
 }
 
 static DLABTimecodeSetting* createTimecodeSetting(IDeckLinkVideoInputFrame* videoFrame, BMDTimecodeFormat format) {
-    assert(videoFrame && format);
+    if (!videoFrame || !format) return nil;
     
     HRESULT result = E_FAIL;
     
@@ -985,28 +995,42 @@ static DLABTimecodeSetting* createTimecodeSetting(IDeckLinkVideoInputFrame* vide
     IDeckLinkInput *input = self.deckLinkInput;
     if (input) {
         __block HRESULT result = E_FAIL;
+        __block HRESULT queryResult = S_OK;
+        __block NSString *queryFailureReason = nil;
         __block BMDDisplayMode actualMode = 0;
         __block bool supported = false;
         __block bool pre1403 = [DLABVersionChecker checkPre1403];
         __block bool pre1105 = [DLABVersionChecker checkPre1105];
         [self capture_sync:^{
             if (pre1105) {
-                IDeckLinkInput_v11_4 *input1104 = (IDeckLinkInput_v11_4*)input;
-                result = input1104->DoesSupportVideoMode(videoConnection,           // BMDVideoConnection = DLABVideoConnection
-                                                         displayMode,               // BMDDisplayMode = DLABDisplayMode
-                                                         pixelFormat,               // BMDPixelFormat = DLABPixelFormat
-                                                         supportedVideoModeFlag,    // BMDSupportedVideoModeFlags = DLABSupportedVideoModeFlag
-                                                         &supported);               // bool
+                IDeckLinkInput_v11_4 *input1104 = NULL;
+                queryResult = DLABQueryInterfaceAny(input, &input1104, IID_IDeckLinkInput_v11_4);
+                if (queryResult == S_OK && input1104) {
+                    result = input1104->DoesSupportVideoMode(videoConnection,           // BMDVideoConnection = DLABVideoConnection
+                                                             displayMode,               // BMDDisplayMode = DLABDisplayMode
+                                                             pixelFormat,               // BMDPixelFormat = DLABPixelFormat
+                                                             supportedVideoModeFlag,    // BMDSupportedVideoModeFlags = DLABSupportedVideoModeFlag
+                                                             &supported);               // bool
+                } else {
+                    queryFailureReason = @"DLABQueryInterfaceAny failed for IDeckLinkInput_v11_4.";
+                }
+                DLABReleaseIfNeeded(input1104);
             } else if (pre1403) {
-                IDeckLinkInput_v14_2_1 *input1402 = (IDeckLinkInput_v14_2_1*)input;
-                BMDVideoInputConversionMode convertMode = bmdNoVideoInputConversion;
-                result = input1402->DoesSupportVideoMode(videoConnection,           // BMDVideoConnection = DLABVideoConnection
-                                                         displayMode,               // BMDDisplayMode = DLABDisplayMode
-                                                         pixelFormat,               // BMDPixelFormat = DLABPixelFormat
-                                                         convertMode,               // BMDVideoInputConversionMode = DLABVideoInputConversionMode
-                                                         supportedVideoModeFlag,    // BMDSupportedVideoModeFlags = DLABSupportedVideoModeFlag
-                                                         &actualMode,               // BMDDisplayMode = DLABDisplayMode
-                                                         &supported);               // bool
+                IDeckLinkInput_v14_2_1 *input1402 = NULL;
+                queryResult = DLABQueryInterfaceAny(input, &input1402, IID_IDeckLinkInput_v14_2_1);
+                if (queryResult == S_OK && input1402) {
+                    BMDVideoInputConversionMode convertMode = bmdNoVideoInputConversion;
+                    result = input1402->DoesSupportVideoMode(videoConnection,           // BMDVideoConnection = DLABVideoConnection
+                                                             displayMode,               // BMDDisplayMode = DLABDisplayMode
+                                                             pixelFormat,               // BMDPixelFormat = DLABPixelFormat
+                                                             convertMode,               // BMDVideoInputConversionMode = DLABVideoInputConversionMode
+                                                             supportedVideoModeFlag,    // BMDSupportedVideoModeFlags = DLABSupportedVideoModeFlag
+                                                             &actualMode,               // BMDDisplayMode = DLABDisplayMode
+                                                             &supported);               // bool
+                } else {
+                    queryFailureReason = @"DLABQueryInterfaceAny failed for IDeckLinkInput_v14_2_1.";
+                }
+                DLABReleaseIfNeeded(input1402);
             } else {
                 BMDVideoInputConversionMode convertMode = bmdNoVideoInputConversion;
                 result = input->DoesSupportVideoMode(videoConnection,           // BMDVideoConnection = DLABVideoConnection
@@ -1018,6 +1042,13 @@ static DLABTimecodeSetting* createTimecodeSetting(IDeckLinkVideoInputFrame* vide
                                                      &supported);               // bool
             }
         }];
+        if (queryFailureReason) {
+            [self post:[NSString stringWithFormat:@"%s (%d)", __PRETTY_FUNCTION__, __LINE__]
+                reason:queryFailureReason
+                  code:queryResult
+                    to:error];
+            return nil;
+        }
         if (result) {
             [self post:[NSString stringWithFormat:@"%s (%d)", __PRETTY_FUNCTION__, __LINE__]
                 reason:@"IDeckLinkInput::DoesSupportVideoMode failed."

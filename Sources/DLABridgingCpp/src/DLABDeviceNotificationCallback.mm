@@ -10,11 +10,6 @@
 
 #import <DLABDeviceNotificationCallback.h>
 
-DLABDeviceNotificationCallback::DLABDeviceNotificationCallback(id<DLABDeviceNotificationCallbackDelegate> delegate)
-: delegate(delegate), refCount(1)
-{
-}
-
 HRESULT DLABDeviceNotificationCallback::DeckLinkDeviceArrived(IDeckLink *deckLink)
 {
     if ([delegate respondsToSelector:@selector(didAddDevice:)]) {
@@ -33,6 +28,7 @@ HRESULT DLABDeviceNotificationCallback::DeckLinkDeviceRemoved(IDeckLink *deckLin
 
 HRESULT DLABDeviceNotificationCallback::QueryInterface(REFIID iid, LPVOID *ppv)
 {
+    if (!ppv) return E_POINTER;
     *ppv = NULL;
     CFUUIDBytes iunknown = CFUUIDGetUUIDBytes(IUnknownUUID);
     if (memcmp(&iid, &iunknown, sizeof(REFIID)) == 0) {
@@ -46,20 +42,4 @@ HRESULT DLABDeviceNotificationCallback::QueryInterface(REFIID iid, LPVOID *ppv)
         return S_OK;
     }
     return E_NOINTERFACE;
-}
-
-ULONG DLABDeviceNotificationCallback::AddRef()
-{
-    ULONG newRefValue = ++refCount;
-    return newRefValue;
-}
-
-ULONG DLABDeviceNotificationCallback::Release()
-{
-    ULONG newRefValue = --refCount;
-    if (newRefValue == 0) {
-        delete this;
-        return 0;
-    }
-    return newRefValue;
 }
