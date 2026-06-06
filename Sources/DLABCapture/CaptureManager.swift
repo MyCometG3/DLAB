@@ -703,7 +703,23 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     public var timecodeFormatType : CMTimeCodeFormatType = kCMTimeCodeFormatType_TimeCode32
     
     /// Validate if source provides timecode of specified type. Set before ``captureStartAsync()``.
-    public var timecodeSource :TimecodeType? = nil
+    ///
+    /// M-14: backed by a `LockedOptionalValueBox` so callback / async code can read
+    /// the value safely. The setter enforces the set-before-capture contract:
+    /// when `running == true`, assignment is **ignored** with a `printVerbose` warning
+    /// (existing value is preserved). This protects against in-flight timecode
+    /// processing being desynchronized from `currentTimecodeHelper()`.
+    private let timecodeSourceLock = LockedOptionalValueBox<TimecodeType>()
+    public var timecodeSource: TimecodeType? {
+        get { timecodeSourceLock.value }
+        set {
+            if running {
+                printVerbose("WARNING:CaptureManager.timecodeSource - change requested while capture is running; ignoring (existing value preserved)")
+                return
+            }
+            timecodeSourceLock.value = newValue
+        }
+    }
     
     /* ============================================ */
     // MARK: - properties - Capturing ancillary data
