@@ -987,14 +987,25 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                 }
             }
         }  else {
-            printVerbose("ERROR: device is not ready")
-            // M-03: there is no thrown Error to surface in the precondition
-            // path (currentDevice nil, or device.isReady == false), so
+            let snapshot = withRuntimeState { state in
+                (hasDevice: state.currentDevice != nil, running: state.running)
+            }
+            let reason: String
+            if snapshot.running {
+                reason = "capture is already running"
+            } else if !snapshot.hasDevice {
+                reason = "device is not ready"
+            } else {
+                reason = "device is not ready"
+            }
+            printVerbose("ERROR: \(reason)")
+            // M-03: there is no thrown Error to surface in this precondition
+            // path (missing currentDevice, or capture already running), so
             // synthesize one in the shared DLABCapture error domain so
             // callers reading lastStartError can observe why start failed.
             let preconditionError = createError(OSStatus(-1),
                                                 "CaptureManager.captureStartAsync",
-                                                "device is not ready")
+                                                reason)
             withRuntimeState { $0.lastStartError = preconditionError }
         }
         return false
