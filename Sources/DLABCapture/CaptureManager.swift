@@ -225,6 +225,8 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         var lastAppendError: (any Error)? = nil
         var appendErrorCount: Int = 0
         var appendErrorMediaType: String? = nil
+        // M-03: captureStartAsync / rollbackCaptureStart failure observability
+        var lastStartError: (any Error)? = nil
         var currentDevice: DLABDevice? = nil
         var audioCaptureEnabled: Bool = false
         var videoCaptureEnabled: Bool = false
@@ -559,6 +561,19 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     public private(set) var stopError: (any Error)? {
         get { runtimeStateValue(\.stopError) }
         set { withRuntimeState { $0.stopError = newValue } }
+    }
+
+    /// Error from the last `captureStartAsync()` call (or its rollback), if start failed.
+    /// Overwritten on each new failure; not cleared automatically.
+    /// Use ``clearLastStartError()`` to reset after handling.
+    public private(set) var lastStartError: (any Error)? {
+        get { runtimeStateValue(\.lastStartError) }
+        set { withRuntimeState { $0.lastStartError = newValue } }
+    }
+
+    /// Clear the last start error.
+    public func clearLastStartError() {
+        withRuntimeState { $0.lastStartError = nil }
     }
     
     /// Last audio preview failure (enqueue/aqPrime/aqStart), if any.
@@ -944,12 +959,22 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                 }
             } catch let error as NSError {
                 printVerbose("ERROR:\(error.domain)(\(error.code)): \(error.localizedFailureReason ?? "unknown reason")")
+                // M-03: record start failure for observability
+                withRuntimeState { $0.lastStartError = error }
                 if let device = currentDevice {
                     await rollbackCaptureStart(on: device)
                 }
             }
         }  else {
             printVerbose("ERROR: device is not ready")
+            // M-03: there is no thrown Error to surface in the precondition
+            // path (currentDevice nil, or device.isReady == false), so
+            // synthesize one in the shared DLABCapture error domain so
+            // callers reading lastStartError can observe why start failed.
+            let preconditionError = createError(OSStatus(-1),
+                                                "CaptureManager.captureStartAsync",
+                                                "device is not ready")
+            withRuntimeState { $0.lastStartError = preconditionError }
         }
         return false
     }
@@ -1041,13 +1066,15 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     private func rollbackCaptureStart(on device: DLABDevice) async {
         device.inputDelegate = nil
         clearInputAncillaryPacketHandler(from: device)
-        
+
         if audioCaptureEnabled {
             do {
                 try device.disableAudioInput()
                 audioCaptureEnabled = false
             } catch let error as NSError {
                 printVerbose("ERROR:CaptureManager.rollbackCaptureStart - disableAudioInput failed: \(error.domain)(\(error.code)): \(error.localizedFailureReason ?? error.localizedDescription)")
+                // M-03: surface rollback failure
+                withRuntimeState { $0.lastStartError = error }
             }
         }
         if videoCaptureEnabled {
@@ -1056,9 +1083,11 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                 videoCaptureEnabled = false
             } catch let error as NSError {
                 printVerbose("ERROR:CaptureManager.rollbackCaptureStart - disableVideoInput failed: \(error.domain)(\(error.code)): \(error.localizedFailureReason ?? error.localizedDescription)")
+                // M-03: surface rollback failure
+                withRuntimeState { $0.lastStartError = error }
             }
         }
-        
+
         if let videoPreview = videoPreview {
             await MainActor.run {
                 videoPreview.shutdown()
@@ -1069,15 +1098,19 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                 try await attachInputScreenPreview(to: nil)
             } catch let error as NSError {
                 printVerbose("ERROR:CaptureManager.rollbackCaptureStart - attachInputScreenPreview failed: \(error.domain)(\(error.code)): \(error.localizedFailureReason ?? error.localizedDescription)")
+                // M-03: surface rollback failure
+                withRuntimeState { $0.lastStartError = error }
             }
         }
-        
+
         do {
             try await disposeAudioPreview()
         } catch let error as NSError {
             printVerbose("ERROR:CaptureManager.rollbackCaptureStart - disposeAudioPreview failed: \(error.domain)(\(error.code)): \(error.localizedFailureReason ?? error.localizedDescription)")
+            // M-03: surface rollback failure
+            withRuntimeState { $0.lastStartError = error }
         }
-        
+
         timecodeReady = false
         clearTimecodeHelper()
         running = false
