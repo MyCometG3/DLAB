@@ -221,6 +221,10 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         var stopError: (any Error)? = nil
         var audioPreviewError: (any Error)? = nil
         var previewError: (any Error)? = nil
+        // M-01: writer.appendSampleBuffer failure observability
+        var lastAppendError: (any Error)? = nil
+        var appendErrorCount: Int = 0
+        var appendErrorMediaType: String? = nil
         var currentDevice: DLABDevice? = nil
         var audioCaptureEnabled: Bool = false
         var videoCaptureEnabled: Bool = false
@@ -582,7 +586,34 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     public func clearPreviewError() {
         withRuntimeState { $0.previewError = nil }
     }
-    
+
+    /// Last `writer.appendSampleBuffer` failure (audio / video / timecode), if any.
+    /// Overwritten on each new failure; not cleared automatically.
+    /// Use ``clearLastAppendError()`` to reset after handling.
+    public private(set) var lastAppendError: (any Error)? {
+        get { runtimeStateValue(\.lastAppendError) }
+        set { withRuntimeState { $0.lastAppendError = newValue } }
+    }
+
+    /// Cumulative count of `writer.appendSampleBuffer` failures since the last clear.
+    public var appendErrorCount: Int {
+        get { runtimeStateValue(\.appendErrorCount) }
+    }
+
+    /// Media type string ("audio" / "video" / "timecode") of the most recent append failure.
+    public var appendErrorMediaType: String? {
+        get { runtimeStateValue(\.appendErrorMediaType) }
+    }
+
+    /// Clear the last append error and reset the cumulative counter.
+    public func clearLastAppendError() {
+        withRuntimeState {
+            $0.lastAppendError = nil
+            $0.appendErrorCount = 0
+            $0.appendErrorMediaType = nil
+        }
+    }
+
     /// Optional callback for non-fatal `CaptureWriter` diagnostics during fallback cleanup.
     public var captureWriterDiagnosticHandler: (@Sendable (CaptureWriterDiagnostic) -> Void)? = nil
     
@@ -1507,6 +1538,14 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                 try await writer.appendSampleBuffer(wrapper: wrapper, mediaType: .audio)
             } catch {
                 printVerbose("ERROR:CaptureManager.\(#function) - audio append failed: \(error.localizedDescription)")
+                // M-01: record append failure for observability (getter only;
+                // no new CaptureWriterDiagnostic case, to avoid a source-breaking
+                // addition to the public enum).
+                withRuntimeState { state in
+                    state.lastAppendError = error
+                    state.appendErrorCount += 1
+                    state.appendErrorMediaType = "audio"
+                }
             }
         }
         withAudioPreview { preview in
@@ -1563,6 +1602,14 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                 try await writer.appendSampleBuffer(wrapper: wrapper, mediaType: .video)
             } catch {
                 printVerbose("ERROR:CaptureManager.\(#function) - video append failed: \(error.localizedDescription)")
+                // M-01: record append failure for observability (getter only;
+                // no new CaptureWriterDiagnostic case, to avoid a source-breaking
+                // addition to the public enum).
+                withRuntimeState { state in
+                    state.lastAppendError = error
+                    state.appendErrorCount += 1
+                    state.appendErrorMediaType = "video"
+                }
             }
         }
         
@@ -1583,9 +1630,17 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                             try await writer.appendSampleBuffer(wrapper: wrapper, mediaType: .timecode)
                         } catch {
                             printVerbose("ERROR:CaptureManager.\(#function) - device timecode append failed: \(error.localizedDescription)")
+                            // M-01: record append failure for observability (getter only;
+                            // no new CaptureWriterDiagnostic case, to avoid a source-breaking
+                            // addition to the public enum).
+                            withRuntimeState { state in
+                                state.lastAppendError = error
+                                state.appendErrorCount += 1
+                                state.appendErrorMediaType = "timecode"
+                            }
                         }
                     }
-                    
+
                     // source provides timecode
                     if timecodeReady == false {
                         timecodeReady = true
@@ -1604,9 +1659,17 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                             try await writer.appendSampleBuffer(wrapper: wrapper, mediaType: .timecode)
                         } catch {
                             printVerbose("ERROR:CaptureManager.\(#function) - core audio timecode append failed: \(error.localizedDescription)")
+                            // M-01: record append failure for observability (getter only;
+                            // no new CaptureWriterDiagnostic case, to avoid a source-breaking
+                            // addition to the public enum).
+                            withRuntimeState { state in
+                                state.lastAppendError = error
+                                state.appendErrorCount += 1
+                                state.appendErrorMediaType = "timecode"
+                            }
                         }
                     }
-                    
+
                     // source provides timecode
                     if timecodeReady == false {
                         timecodeReady = true
