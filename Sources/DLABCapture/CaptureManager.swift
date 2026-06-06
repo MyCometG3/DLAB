@@ -957,7 +957,12 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     /// Stop capture session
     @discardableResult
     public func captureStopAsync() async -> Bool {
-        if let device = currentDevice, running == true {
+        // M-02: atomic snapshot of (currentDevice, running) under single lock
+        // to avoid TOCTOU between the two getter calls.
+        let snapshot = withRuntimeState { state in
+            (currentDevice: state.currentDevice, running: state.running)
+        }
+        if let device = snapshot.currentDevice, snapshot.running {
             stopError = nil
             if recording {
                 await recordToggleAsync() // actor isolated (writer)
