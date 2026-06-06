@@ -988,16 +988,9 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
             }
         }  else {
             let snapshot = withRuntimeState { state in
-                (hasDevice: state.currentDevice != nil, running: state.running)
+                state.running
             }
-            let reason: String
-            if snapshot.running {
-                reason = "capture is already running"
-            } else if !snapshot.hasDevice {
-                reason = "device is not ready"
-            } else {
-                reason = "device is not ready"
-            }
+            let reason = snapshot ? "capture is already running" : "device is not ready"
             printVerbose("ERROR: \(reason)")
             // M-03: there is no thrown Error to surface in this precondition
             // path (missing currentDevice, or capture already running), so
