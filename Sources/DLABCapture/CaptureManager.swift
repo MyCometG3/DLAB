@@ -562,7 +562,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         get { runtimeStateValue(\.stopError) }
         set { withRuntimeState { $0.stopError = newValue } }
     }
-
+    
     /// Error from the last `captureStartAsync()` call (or its rollback), if start failed.
     /// Overwritten on each new failure; not cleared automatically.
     /// Use ``clearLastStartError()`` to reset after handling.
@@ -570,7 +570,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         get { runtimeStateValue(\.lastStartError) }
         set { withRuntimeState { $0.lastStartError = newValue } }
     }
-
+    
     /// Clear the last start error.
     public func clearLastStartError() {
         withRuntimeState { $0.lastStartError = nil }
@@ -601,7 +601,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     public func clearPreviewError() {
         withRuntimeState { $0.previewError = nil }
     }
-
+    
     /// Last `writer.appendSampleBuffer` failure (audio / video / timecode), if any.
     /// Overwritten on each new failure; not cleared automatically.
     /// Use ``clearLastAppendError()`` to reset after handling.
@@ -609,17 +609,17 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         get { runtimeStateValue(\.lastAppendError) }
         set { withRuntimeState { $0.lastAppendError = newValue } }
     }
-
+    
     /// Cumulative count of `writer.appendSampleBuffer` failures since the last clear.
     public var appendErrorCount: Int {
         get { runtimeStateValue(\.appendErrorCount) }
     }
-
+    
     /// Media type string ("audio" / "video" / "timecode") of the most recent append failure.
     public var appendErrorMediaType: String? {
         get { runtimeStateValue(\.appendErrorMediaType) }
     }
-
+    
     /// Clear the last append error and reset the cumulative counter.
     public func clearLastAppendError() {
         withRuntimeState {
@@ -628,7 +628,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
             $0.appendErrorMediaType = nil
         }
     }
-
+    
     /// Optional callback for non-fatal `CaptureWriter` diagnostics during fallback cleanup.
     public var captureWriterDiagnosticHandler: (@Sendable (CaptureWriterDiagnostic) -> Void)? = nil
     
@@ -1091,7 +1091,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     private func rollbackCaptureStart(on device: DLABDevice) async {
         device.inputDelegate = nil
         clearInputAncillaryPacketHandler(from: device)
-
+        
         if audioCaptureEnabled {
             do {
                 try device.disableAudioInput()
@@ -1112,7 +1112,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                 withRuntimeState { $0.lastStartError = error }
             }
         }
-
+        
         if let videoPreview = videoPreview {
             await MainActor.run {
                 videoPreview.shutdown()
@@ -1127,7 +1127,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                 withRuntimeState { $0.lastStartError = error }
             }
         }
-
+        
         do {
             try await disposeAudioPreview()
         } catch let error as NSError {
@@ -1135,7 +1135,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
             // M-03: surface rollback failure
             withRuntimeState { $0.lastStartError = error }
         }
-
+        
         timecodeReady = false
         clearTimecodeHelper()
         running = false
@@ -1703,7 +1703,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                             }
                         }
                     }
-
+                    
                     // source provides timecode
                     if timecodeReady == false {
                         timecodeReady = true
@@ -1732,7 +1732,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                             }
                         }
                     }
-
+                    
                     // source provides timecode
                     if timecodeReady == false {
                         timecodeReady = true

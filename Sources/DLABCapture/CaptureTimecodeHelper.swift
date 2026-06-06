@@ -148,7 +148,7 @@ final class CaptureTimecodeHelper: NSObject, @unchecked Sendable {
         let smpteTimeData = CMGetAttachment(sampleBuffer,
                                             key: smpteTimeKey as CFString,
                                             attachmentModeOut: nil)
-
+        
         // Create SMPTETime struct from sampleBuffer attachment
         var smpteTime: CVSMPTETime? = nil
         if let smpteTimeData = smpteTimeData as? NSData {
@@ -161,7 +161,7 @@ final class CaptureTimecodeHelper: NSObject, @unchecked Sendable {
             }
             smpteTime = smpteTimeData.bytes.loadUnaligned(as: CVSMPTETime.self)
         }
-
+        
         return smpteTime
     }
     
@@ -268,7 +268,7 @@ final class CaptureTimecodeHelper: NSObject, @unchecked Sendable {
                                                    tcType: UInt32) -> CMBlockBuffer? {
         prepareTimeCodeDataBuffer(smpteTime, sizes, quanta, tcType)
     }
-
+    
     internal func testingExtractCVSMPTETime(from sampleBuffer: CMSampleBuffer) -> CVSMPTETime? {
         extractCVSMPTETime(from: sampleBuffer)
     }

@@ -417,7 +417,7 @@ actor CaptureWriter {
     public func openSession() async {
         openSessionStartedAt = CFAbsoluteTimeGetCurrent()
         loggedFirstVideoAppend = false
-
+        
         // H-06: If a previous session is still open, close it first to recover writer state.
         // M-06: This `await closeSession()` is a reentrancy point; concurrent callers
         //       of openSession() can interleave here. See openSession() contract.
