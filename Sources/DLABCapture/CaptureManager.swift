@@ -759,11 +759,16 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
     public var timecodeSource: TimecodeType? {
         get { timecodeSourceLock.value }
         set {
-            if running {
-                printVerbose("WARNING:CaptureManager.timecodeSource - change requested while capture is running; ignoring (existing value preserved)")
-                return
+            let shouldIgnore = withRuntimeState { state in
+                if state.running {
+                    return true
+                }
+                timecodeSourceLock.value = newValue
+                return false
             }
-            timecodeSourceLock.value = newValue
+            if shouldIgnore {
+                printVerbose("WARNING:CaptureManager.timecodeSource - change requested while capture is running; ignoring (existing value preserved)")
+            }
         }
     }
     

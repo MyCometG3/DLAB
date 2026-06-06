@@ -154,11 +154,12 @@ final class CaptureTimecodeHelper: NSObject, @unchecked Sendable {
         if let smpteTimeData = smpteTimeData as? NSData {
             // M-04: guard against undersized attachment to prevent OOB read in load(as:)
             // NSData.length < MemoryLayout<CVSMPTETime>.size would cause
-            // UnsafeRawPointer.load precondition failure / OOB read.
+            // UnsafeRawPointer.load precondition failure / OOB read. Also use
+            // loadUnaligned(as:) because NSData.bytes does not guarantee alignment.
             guard smpteTimeData.length >= MemoryLayout<CVSMPTETime>.size else {
                 return nil
             }
-            smpteTime = smpteTimeData.bytes.load(as: CVSMPTETime.self)
+            smpteTime = smpteTimeData.bytes.loadUnaligned(as: CVSMPTETime.self)
         }
 
         return smpteTime
@@ -266,5 +267,9 @@ final class CaptureTimecodeHelper: NSObject, @unchecked Sendable {
                                                    quanta: UInt32,
                                                    tcType: UInt32) -> CMBlockBuffer? {
         prepareTimeCodeDataBuffer(smpteTime, sizes, quanta, tcType)
+    }
+
+    internal func testingExtractCVSMPTETime(from sampleBuffer: CMSampleBuffer) -> CVSMPTETime? {
+        extractCVSMPTETime(from: sampleBuffer)
     }
 }

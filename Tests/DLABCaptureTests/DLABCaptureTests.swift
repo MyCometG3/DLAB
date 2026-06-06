@@ -1,5 +1,6 @@
 import XCTest
 import AVFoundation
+import AudioToolbox
 import CoreMedia
 @testable import DLABCapture
 
@@ -184,6 +185,22 @@ final class DLABCaptureTests: XCTestCase {
         XCTAssertNil(dataBuffer)
     }
 
+    func testCaptureTimecodeHelperReturnsNilForUndersizedSMPTEAttachment() throws {
+        let helper = CaptureTimecodeHelper(formatType: kCMTimeCodeFormatType_TimeCode32)
+        let sampleBuffer = try makeAudioSampleBufferForTests()
+        let undersizedData = Data(repeating: 0, count: MemoryLayout<CVSMPTETime>.size - 1) as NSData
+
+        CMSetAttachment(
+            sampleBuffer,
+            key: "com.apple.cmio.buffer_attachment.core_audio_smpte_time" as CFString,
+            value: undersizedData,
+            attachmentMode: kCMAttachmentMode_ShouldPropagate
+        )
+
+        XCTAssertNil(helper.testingExtractCVSMPTETime(from: sampleBuffer))
+        XCTAssertNil(helper.createTimeCodeSample(from: sampleBuffer))
+    }
+
     func testCaptureManagerDisposeAudioPreviewWaitsForInFlightUse() async throws {
         let manager = CaptureManager()
         let preview = CaptureAudioPreview.TestingDouble()
@@ -353,4 +370,84 @@ final class DLABCaptureTests: XCTestCase {
 
         await fulfillment(of: [startExpectation, timeoutExpectation], timeout: 1.0)
     }
+}
+
+private func makeAudioSampleBufferForTests() throws -> CMSampleBuffer {
+    var asbd = AudioStreamBasicDescription(
+        mSampleRate: 48_000,
+        mFormatID: kAudioFormatLinearPCM,
+        mFormatFlags: kLinearPCMFormatFlagIsSignedInteger | kLinearPCMFormatFlagIsPacked,
+        mBytesPerPacket: 2,
+        mFramesPerPacket: 1,
+        mBytesPerFrame: 2,
+        mChannelsPerFrame: 1,
+        mBitsPerChannel: 16,
+        mReserved: 0
+    )
+
+    var formatDescription: CMAudioFormatDescription?
+    let formatStatus = CMAudioFormatDescriptionCreate(
+        allocator: kCFAllocatorDefault,
+        asbd: &asbd,
+        layoutSize: 0,
+        layout: nil,
+        magicCookieSize: 0,
+        magicCookie: nil,
+        extensions: nil,
+        formatDescriptionOut: &formatDescription
+    )
+    guard formatStatus == noErr, let formatDescription else {
+        throw NSError(domain: "DLABCaptureTests", code: Int(formatStatus))
+    }
+
+    var blockBuffer: CMBlockBuffer?
+    let blockStatus = CMBlockBufferCreateWithMemoryBlock(
+        allocator: kCFAllocatorDefault,
+        memoryBlock: nil,
+        blockLength: 2,
+        blockAllocator: nil,
+        customBlockSource: nil,
+        offsetToData: 0,
+        dataLength: 2,
+        flags: 0,
+        blockBufferOut: &blockBuffer
+    )
+    guard blockStatus == kCMBlockBufferNoErr, let blockBuffer else {
+        throw NSError(domain: "DLABCaptureTests", code: Int(blockStatus))
+    }
+
+    let zeroes = [UInt8](repeating: 0, count: 2)
+    let replaceStatus = CMBlockBufferReplaceDataBytes(
+        with: zeroes,
+        blockBuffer: blockBuffer,
+        offsetIntoDestination: 0,
+        dataLength: 2
+    )
+    guard replaceStatus == kCMBlockBufferNoErr else {
+        throw NSError(domain: "DLABCaptureTests", code: Int(replaceStatus))
+    }
+
+    var timingInfo = CMSampleTimingInfo(
+        duration: CMTime(value: 1, timescale: 48_000),
+        presentationTimeStamp: .zero,
+        decodeTimeStamp: .invalid
+    )
+    var sampleSize = 2
+    var sampleBuffer: CMSampleBuffer?
+    let sampleStatus = CMSampleBufferCreateReady(
+        allocator: kCFAllocatorDefault,
+        dataBuffer: blockBuffer,
+        formatDescription: formatDescription,
+        sampleCount: 1,
+        sampleTimingEntryCount: 1,
+        sampleTimingArray: &timingInfo,
+        sampleSizeEntryCount: 1,
+        sampleSizeArray: &sampleSize,
+        sampleBufferOut: &sampleBuffer
+    )
+    guard sampleStatus == noErr, let sampleBuffer else {
+        throw NSError(domain: "DLABCaptureTests", code: Int(sampleStatus))
+    }
+
+    return sampleBuffer
 }
