@@ -293,7 +293,7 @@ Verified with Blackmagic DeckLink SDK **16.0**.
 
 ## Development Environment
 
-- macOS 26.5 Tahoe
+- macOS 26.5.1 Tahoe
 - Xcode 26.5
 - Swift 6.3.2
 
