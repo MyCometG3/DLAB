@@ -1240,8 +1240,8 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
             writerPrepared = false
             do {
                 try FileManager.default.removeItem(at: tempURL)
-            } catch {
-                printVerbose("ERROR:CaptureManager.\(#function) - prewarm cleanup failed: \(error.localizedDescription)")
+            } catch let error as NSError {
+                printVerbose("ERROR:CaptureManager.\(#function) - prewarm cleanup failed: \(error.domain)(\(error.code)): \(error.localizedFailureReason ?? error.localizedDescription)")
             }
             return false
         }
@@ -1249,8 +1249,8 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         await writer.closeSession()
         do {
             try FileManager.default.removeItem(at: tempURL)
-        } catch {
-            printVerbose("ERROR:CaptureManager.\(#function) - prewarm cleanup failed: \(error.localizedDescription)")
+        } catch let error as NSError {
+            printVerbose("ERROR:CaptureManager.\(#function) - prewarm cleanup failed: \(error.domain)(\(error.code)): \(error.localizedFailureReason ?? error.localizedDescription)")
         }
         writerPrepared = true
         printVerbose("TRACE:CaptureManager.\(#function) - completed")
