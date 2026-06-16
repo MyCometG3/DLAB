@@ -915,7 +915,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                 if let vSetting = vSetting {
                     // Enable Video Preview
                     if let parentView = parentView {
-                        Task { @MainActor [weak self] in
+                        await MainActor.run { [weak self] in
                             guard let self = self else { return }
                             do {
                                 try self.attachInputScreenPreview(to: parentView) // @MainActor
@@ -926,7 +926,7 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                         }
                     }
                     if let videoPreview = videoPreview {
-                        Task { @MainActor in
+                        await MainActor.run {
                             videoPreview.prepare() // @MainActor
                         }
                     }
@@ -1238,12 +1238,20 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         guard await writer.isRecording else {
             printVerbose("ERROR:CaptureManager.\(#function) - prewarm openSession failed")
             writerPrepared = false
-            try? FileManager.default.removeItem(at: tempURL)
+            do {
+                try FileManager.default.removeItem(at: tempURL)
+            } catch {
+                printVerbose("ERROR:CaptureManager.\(#function) - prewarm cleanup failed: \(error.localizedDescription)")
+            }
             return false
         }
         
         await writer.closeSession()
-        try? FileManager.default.removeItem(at: tempURL)
+        do {
+            try FileManager.default.removeItem(at: tempURL)
+        } catch {
+            printVerbose("ERROR:CaptureManager.\(#function) - prewarm cleanup failed: \(error.localizedDescription)")
+        }
         writerPrepared = true
         printVerbose("TRACE:CaptureManager.\(#function) - completed")
         return true
@@ -1612,31 +1620,26 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
             }
         }
         withAudioPreview { preview in
+            do { try preview.enqueue(sampleBuffer) }
+            catch {
+                audioPreviewError = error
+                printVerbose("ERROR:CaptureManager.\(#function) - audio preview enqueue failed: \(error.localizedDescription)")
+                return
+            }
             if preview.running == true {
-                do { try preview.enqueue(sampleBuffer) }
-                catch {
-                    audioPreviewError = error
-                    printVerbose("ERROR:CaptureManager.\(#function) - audio preview enqueue failed: \(error.localizedDescription)")
-                }
-            } else {
-                do { try preview.enqueue(sampleBuffer) }
-                catch {
-                    audioPreviewError = error
-                    printVerbose("ERROR:CaptureManager.\(#function) - audio preview enqueue failed: \(error.localizedDescription)")
-                    return
-                }
-                do { try preview.aqPrime() }
-                catch {
-                    audioPreviewError = error
-                    printVerbose("ERROR:CaptureManager.\(#function) - audio preview aqPrime failed: \(error.localizedDescription)")
-                    return
-                }
-                do { try preview.aqStart() }
-                catch {
-                    audioPreviewError = error
-                    printVerbose("ERROR:CaptureManager.\(#function) - audio preview aqStart failed: \(error.localizedDescription)")
-                    audioPreviewStateToDispose = takeAudioPreviewForDisposal()
-                }
+                return
+            }
+            do { try preview.aqPrime() }
+            catch {
+                audioPreviewError = error
+                printVerbose("ERROR:CaptureManager.\(#function) - audio preview aqPrime failed: \(error.localizedDescription)")
+                return
+            }
+            do { try preview.aqStart() }
+            catch {
+                audioPreviewError = error
+                printVerbose("ERROR:CaptureManager.\(#function) - audio preview aqStart failed: \(error.localizedDescription)")
+                audioPreviewStateToDispose = takeAudioPreviewForDisposal()
             }
         }
         
