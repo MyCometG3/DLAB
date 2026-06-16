@@ -915,14 +915,11 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
                 if let vSetting = vSetting {
                     // Enable Video Preview
                     if let parentView = parentView {
-                        await MainActor.run { [weak self] in
-                            guard let self = self else { return }
-                            do {
-                                try self.attachInputScreenPreview(to: parentView) // @MainActor
-                            } catch {
-                                self.printVerbose("ERROR: captureStartAsync - attachInputScreenPreview failed: \(error.localizedDescription)")
-                                self.previewError = error
-                            }
+                        do {
+                            try await attachInputScreenPreview(to: parentView) // @MainActor
+                        } catch let error as NSError {
+                            printVerbose("ERROR: captureStartAsync - attachInputScreenPreview failed: \(error.domain)(\(error.code)): \(error.localizedFailureReason ?? error.localizedDescription)")
+                            previewError = error
                         }
                     }
                     if let videoPreview = videoPreview {
@@ -1241,7 +1238,12 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
             do {
                 try FileManager.default.removeItem(at: tempURL)
             } catch let error as NSError {
-                printVerbose("ERROR:CaptureManager.\(#function) - prewarm cleanup failed: \(error.domain)(\(error.code)): \(error.localizedFailureReason ?? error.localizedDescription)")
+                // Ignore "file not found": tempURL is UUID-based and may never
+                // have been created if openSession failed early, or may have
+                // been removed by a prior cleanup. Not a meaningful failure.
+                if !(error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError) {
+                    printVerbose("ERROR:CaptureManager.\(#function) - prewarm cleanup failed: \(error.domain)(\(error.code)): \(error.localizedFailureReason ?? error.localizedDescription)")
+                }
             }
             return false
         }
@@ -1250,7 +1252,12 @@ public class CaptureManager: NSObject, DLABInputCaptureDelegate {
         do {
             try FileManager.default.removeItem(at: tempURL)
         } catch let error as NSError {
-            printVerbose("ERROR:CaptureManager.\(#function) - prewarm cleanup failed: \(error.domain)(\(error.code)): \(error.localizedFailureReason ?? error.localizedDescription)")
+            // Ignore "file not found": tempURL may have been removed by
+            // external action between openSession and this cleanup. Not a
+            // meaningful failure.
+            if !(error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError) {
+                printVerbose("ERROR:CaptureManager.\(#function) - prewarm cleanup failed: \(error.domain)(\(error.code)): \(error.localizedFailureReason ?? error.localizedDescription)")
+            }
         }
         writerPrepared = true
         printVerbose("TRACE:CaptureManager.\(#function) - completed")
